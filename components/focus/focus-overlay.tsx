@@ -12,6 +12,7 @@ import { ConfirmDialog } from "@/components/ui/dialog";
 import { useSettings } from "@/hooks/use-settings";
 import { getDb } from "@/lib/db/client";
 import { id as t } from "@/lib/i18n/id";
+import { primeAudio } from "@/lib/pomodoro/audio";
 import {
   completedFocusFor,
   pauseSession,
@@ -150,7 +151,8 @@ export function FocusOverlay() {
                 <Button
                   variant="primary"
                   size="lg"
-                  onClick={() =>
+                  onClick={() => {
+                    primeAudio();
                     void (async () => {
                       const completed = timer.agendaId
                         ? await completedFocusFor(timer.agendaId)
@@ -161,8 +163,8 @@ export function FocusOverlay() {
                         alreadyCompleted: completed,
                         isOvertime: allocated > 0 && completed >= allocated,
                       });
-                    })()
-                  }
+                    })();
+                  }}
                 >
                   {t.focus.nextFocus}
                 </Button>

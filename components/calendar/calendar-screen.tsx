@@ -9,6 +9,7 @@ import {
   type CreateAtRequest,
 } from "@/components/calendar/create-at-sheet";
 import { DraftBar } from "@/components/calendar/draft-bar";
+import { TimelineScrollContext } from "@/components/calendar/scroll-context";
 import { HourGutter, TimelineDay } from "@/components/calendar/timeline";
 import { EmptyState, Screen, ScreenTitle } from "@/components/shell/screen";
 import { SyncIndicator } from "@/components/shell/sync-indicator";
@@ -22,6 +23,7 @@ import {
   startFocusSession,
   usePomodoroStore,
 } from "@/lib/pomodoro/store";
+import { primeAudio } from "@/lib/pomodoro/audio";
 import { usePomodoroLogs, useTaskData } from "@/hooks/use-tasks";
 import { useSchedulingWorld } from "@/hooks/use-scheduling";
 import { useSettings } from "@/hooks/use-settings";
@@ -45,21 +47,20 @@ import {
   formatTimeRange,
 } from "@/lib/time";
 import { countsAsUsed } from "@/lib/todos/derived";
+import { childrenBlockingStart, earliestStartFor } from "@/lib/todos/ordering";
 import { cn } from "@/lib/utils";
 
 type CalendarView = "day" | "three" | "list";
 
 const LIST_HORIZON_DAYS = 14;
 
-type PendingMove =
-  | {
-      agenda: Agenda;
-      start: number;
-      end: number;
-      reason: "outside-window" | "time-block";
-      blockName?: string;
-    }
-  | null;
+type PendingMove = {
+  agenda: Agenda;
+  start: number;
+  end: number;
+  reason: "outside-window" | "time-block";
+  blockName?: string;
+} | null;
 
 export function CalendarScreen() {
   const settings = useSettings();
@@ -77,16 +78,21 @@ export function CalendarScreen() {
   const scrolledFor = React.useRef<string>("");
 
   const days: IsoDate[] =
-    view === "three" ? [anchor, addDays(anchor, 1), addDays(anchor, 2)] : [anchor];
+    view === "three"
+      ? [anchor, addDays(anchor, 1), addDays(anchor, 2)]
+      : [anchor];
 
-  const rangeTo = view === "list" ? addDays(anchor, LIST_HORIZON_DAYS) : days[days.length - 1]!;
+  const rangeTo =
+    view === "list"
+      ? addDays(anchor, LIST_HORIZON_DAYS)
+      : days[days.length - 1]!;
   const world = useSchedulingWorld({
     from: anchor,
     to: rangeTo,
     includeDraftAgendas: true,
   });
 
-  const { todos, agendas } = useTaskData();
+  const { todos, agendas, index } = useTaskData();
   const logs = usePomodoroLogs();
   const todosById = React.useMemo(
     () => new Map(todos.map((todo) => [todo.id, todo])),
@@ -145,7 +151,9 @@ export function CalendarScreen() {
     const dayWindows = world.windows.filter((w) => w.date === anchor);
     const dayStart = dayWindows[0]?.start ?? 0;
     const dayEnd = dayWindows[dayWindows.length - 1]?.end ?? 0;
-    const dayBusy = world.busy.filter((b) => b.end > dayStart && b.start < dayEnd);
+    const dayBusy = world.busy.filter(
+      (b) => b.end > dayStart && b.start < dayEnd,
+    );
     // "Free hours remaining" is the net figure: windows minus every obstacle.
     const free = buildFreeSpace(dayWindows, dayBusy);
     return { count: list.length, allocated, freeMin: freeMinutes(free) };
@@ -153,7 +161,12 @@ export function CalendarScreen() {
 
   /* ---------------- move / resize (§5.1, §5.4 soft confirmations) -------- */
 
-  const commitMove = async (agenda: Agenda, start: number, end: number, outside: boolean) => {
+  const commitMove = async (
+    agenda: Agenda,
+    start: number,
+    end: number,
+    outside: boolean,
+  ) => {
     await updateAgenda(agenda.id, {
       start_at: new Date(start).toISOString(),
       end_at: new Date(end).toISOString(),
@@ -165,13 +178,32 @@ export function CalendarScreen() {
     const interval = { start, end };
     const todo = todosById.get(agenda.todo_id);
 
+    // A parent may not start before its children. Unlike the window and
+    // time-block rules this is not a confirmation — a parent that begins
+    // before its own subtasks is incoherent, not merely unusual.
+    const childFloor = earliestStartFor(index, agenda.todo_id, agendas);
+    if (start < childFloor) {
+      const blockers = childrenBlockingStart(
+        index,
+        agenda.todo_id,
+        agendas,
+        start,
+      );
+      toast.error(t.agenda.parentBeforeChild(blockers.map((c) => c.title)));
+      return;
+    }
+
     if (!isInsideWindow(interval, world.windows)) {
       setPendingMove({ agenda, start, end, reason: "outside-window" });
       return;
     }
     const violated = todo
       ? violatedBlock(
-          { categoryId: todo.category_id, tags: todo.tags, priority: todo.priority },
+          {
+            categoryId: todo.category_id,
+            tags: todo.tags,
+            priority: todo.priority,
+          },
           interval,
           world.timeBlocks,
         )
@@ -190,7 +222,8 @@ export function CalendarScreen() {
   };
 
   const onMoveAgenda = (agenda: Agenda, startMs: number) => {
-    const duration = new Date(agenda.end_at).getTime() - new Date(agenda.start_at).getTime();
+    const duration =
+      new Date(agenda.end_at).getTime() - new Date(agenda.start_at).getTime();
     requestMove(agenda, startMs, startMs + duration);
   };
 
@@ -303,56 +336,69 @@ export function CalendarScreen() {
             }
           }}
         >
-          <div className="flex">
-            <HourGutter />
-            {days.map((date) => (
-              <div key={date} className="min-w-0 flex-1 border-r border-border/60">
-                {view === "three" ? (
-                  <div className="sticky top-0 z-30 border-b border-border bg-bg/95 py-1 text-center text-[11px] font-medium backdrop-blur">
-                    {formatDateWithWeekday(date)}
-                  </div>
-                ) : null}
-                <TimelineDay
-                  date={date}
-                  timezone={settings.timezone}
-                  windows={world.windows.filter((w) => w.date === date)}
-                  timeBlocks={world.timeBlocks.filter((b) => b.date === date)}
-                  busy={world.busy.filter((b) => b.source === "gcal_busy")}
-                  prayers={world.prayers.filter((p) => p.date === date)}
-                  agendas={agendasForDay(date)}
-                  todosById={todosById}
-                  completedByAgenda={completedByAgenda}
-                  runningAgendaId={runningAgendaId}
-                  nowMs={nowMs}
-                  compact={view === "three"}
-                  onOpenAgenda={(agenda) => setOpenAgendaId(agenda.id)}
-                  onMoveAgenda={onMoveAgenda}
-                  onResizeAgenda={onResizeAgenda}
-                  onToggleBlockSkip={(block) => {
-                    void (async () => {
-                      const skipped = await toggleSkip(block.timeBlockId, block.date);
-                      toast.undoable(
-                        skipped
-                          ? t.settings.timeBlockSkipped
-                          : t.settings.timeBlockUnskip,
-                        () => void toggleSkip(block.timeBlockId, block.date),
+          <TimelineScrollContext.Provider value={scrollRef}>
+            <div className="flex">
+              <HourGutter />
+              {days.map((date) => (
+                <div
+                  key={date}
+                  className="min-w-0 flex-1 border-r border-border/60"
+                >
+                  {view === "three" ? (
+                    <div className="sticky top-0 z-30 border-b border-border bg-bg/95 py-1 text-center text-[11px] font-medium backdrop-blur">
+                      {formatDateWithWeekday(date)}
+                    </div>
+                  ) : null}
+                  <TimelineDay
+                    date={date}
+                    timezone={settings.timezone}
+                    windows={world.windows.filter((w) => w.date === date)}
+                    timeBlocks={world.timeBlocks.filter((b) => b.date === date)}
+                    busy={world.busy.filter((b) => b.source === "gcal_busy")}
+                    prayers={world.prayers.filter((p) => p.date === date)}
+                    agendas={agendasForDay(date)}
+                    todosById={todosById}
+                    completedByAgenda={completedByAgenda}
+                    runningAgendaId={runningAgendaId}
+                    nowMs={nowMs}
+                    compact={view === "three"}
+                    onOpenAgenda={(agenda) => setOpenAgendaId(agenda.id)}
+                    onMoveAgenda={onMoveAgenda}
+                    onResizeAgenda={onResizeAgenda}
+                    onToggleBlockSkip={(block) => {
+                      void (async () => {
+                        const skipped = await toggleSkip(
+                          block.timeBlockId,
+                          block.date,
+                        );
+                        toast.undoable(
+                          skipped
+                            ? t.settings.timeBlockSkipped
+                            : t.settings.timeBlockUnskip,
+                          () => void toggleSkip(block.timeBlockId, block.date),
+                        );
+                      })();
+                    }}
+                    onCreateAt={(px) => {
+                      const startMs = instantForPx(
+                        px,
+                        date,
+                        settings.timezone,
+                        15,
                       );
-                    })();
-                  }}
-                  onCreateAt={(px) => {
-                    const startMs = instantForPx(px, date, settings.timezone, 15);
-                    setCreateAt({
-                      date,
-                      startMs,
-                      outsideWindow: !world.windows.some(
-                        (w) => w.start <= startMs && startMs < w.end,
-                      ),
-                    });
-                  }}
-                />
-              </div>
-            ))}
-          </div>
+                      setCreateAt({
+                        date,
+                        startMs,
+                        outsideWindow: !world.windows.some(
+                          (w) => w.start <= startMs && startMs < w.end,
+                        ),
+                      });
+                    }}
+                  />
+                </div>
+              ))}
+            </div>
+          </TimelineScrollContext.Provider>
         </div>
       )}
 
@@ -366,7 +412,9 @@ export function CalendarScreen() {
         onDelete={onDeleteAgenda}
         onStartFocus={(agenda) => {
           setOpenAgendaId(null);
-          // Must stay inside the tap handler: iOS unlocks audio only there.
+          // Synchronously, before any await — the unlock is only honoured
+          // while the call stack still belongs to the tap.
+          primeAudio();
           void (async () => {
             const completed = await completedFocusFor(agenda.id);
             await startFocusSession({
@@ -468,7 +516,9 @@ function AgendaList({
                     <span
                       className={cn(
                         "text-[11px]",
-                        agenda.status === "missed" ? "text-danger" : "text-fg-subtle",
+                        agenda.status === "missed"
+                          ? "text-danger"
+                          : "text-fg-subtle",
                       )}
                     >
                       {t.agenda.status[agenda.status]} ·{" "}

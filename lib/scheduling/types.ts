@@ -94,6 +94,13 @@ export interface SchedulableTodo {
   remainingToAllocate: number;
   /** Blocked todos are excluded from smart allocation entirely (§4.2, §5.5). */
   blocked: boolean;
+  /** Hierarchy parent, used to keep a parent from starting before its children. */
+  parentId: UUID | null;
+  /**
+   * Depth in the hierarchy (1 = root). Deeper todos are scheduled first so a
+   * parent can be placed after everything beneath it.
+   */
+  depth: number;
 }
 
 /** Pomodoro geometry, from settings (§4.8). */

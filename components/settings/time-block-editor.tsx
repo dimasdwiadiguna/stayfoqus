@@ -3,13 +3,16 @@
 import { Plus, Trash2 } from "lucide-react";
 import * as React from "react";
 
+import { useLiveQuery } from "dexie-react-hooks";
+
 import { Section } from "@/components/settings/section";
 import { Button } from "@/components/ui/button";
 import { Chip, Input, Segmented, Switch } from "@/components/ui/field";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { useCategories, useTodos } from "@/hooks/use-tasks";
 import { useTimeBlocks } from "@/hooks/use-scheduling";
-import type { DayOfWeek, Priority, TimeBlock } from "@/lib/db/schema";
+import { getDb } from "@/lib/db/client";
+import type { DayOfWeek, Priority, TimeBlock, UUID } from "@/lib/db/schema";
 import { id as t } from "@/lib/i18n/id";
 import { allTags } from "@/lib/todos/grouping";
 import {
@@ -33,7 +36,7 @@ const PALETTE = [
 /** §4.6 / §5.4 — the time block manager. */
 export function TimeBlockEditor() {
   const blocks = useTimeBlocks();
-  const [editing, setEditing] = React.useState<TimeBlock | null>(null);
+  const [editingId, setEditingId] = React.useState<UUID | null>(null);
 
   return (
     <Section title={t.settings.sectionTimeBlocks} blurb={t.settings.timeBlockBlurb}>
@@ -53,7 +56,7 @@ export function TimeBlockEditor() {
               />
               <button
                 type="button"
-                onClick={() => setEditing(block)}
+                onClick={() => setEditingId(block.id)}
                 className="min-w-0 flex-1 text-left"
               >
                 <div className="truncate text-[15px]">{block.name}</div>
@@ -87,7 +90,7 @@ export function TimeBlockEditor() {
               start_time: "09:00",
               end_time: "12:00",
             });
-            setEditing(created);
+            setEditingId(created.id);
           })()
         }
       >
@@ -95,23 +98,34 @@ export function TimeBlockEditor() {
         {t.settings.addTimeBlock}
       </Button>
 
-      <TimeBlockSheet block={editing} onClose={() => setEditing(null)} />
+      <TimeBlockSheet blockId={editingId} onClose={() => setEditingId(null)} />
     </Section>
   );
 }
 
+/**
+ * The form reads the *live* row, not a snapshot.
+ *
+ * Holding the row in state looked fine but made the whole editor read-only:
+ * every control writes to Dexie, and every control renders from the object it
+ * was opened with — so a toggled day chip, an edited time or a picked colour
+ * was saved and then immediately painted back from the stale copy.
+ */
 function TimeBlockSheet({
-  block,
+  blockId,
   onClose,
 }: {
-  block: TimeBlock | null;
+  blockId: UUID | null;
   onClose: () => void;
 }) {
+  const block = useLiveQuery(
+    () => (blockId ? getDb().time_blocks.get(blockId) : undefined),
+    [blockId],
+  );
+
   return (
-    <Sheet open={Boolean(block)} onOpenChange={(open) => !open && onClose()}>
-      {block ? (
-        <TimeBlockForm key={block.id} block={block} onClose={onClose} />
-      ) : null}
+    <Sheet open={Boolean(blockId)} onOpenChange={(open) => !open && onClose()}>
+      {block ? <TimeBlockForm block={block} onClose={onClose} /> : null}
     </Sheet>
   );
 }

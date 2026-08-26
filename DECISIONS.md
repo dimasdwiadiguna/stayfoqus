@@ -791,3 +791,137 @@ session genuinely was not completed.
 `countsAsUsed` additionally requires `ended_at !== null`, so an open row cannot
 be counted even if some future path writes a different placeholder. Pinned by
 "does not count a focus session that is still running".
+
+---
+
+## Bug fixes after first user testing
+
+Six issues reported after running the build. Four were real defects; two were
+requested behaviour changes. Recorded here because three of them changed a rule
+rather than only a component.
+
+### D-076 · The time block editor rendered from a snapshot — **Bug**
+
+Reported as "nothing in the sheet can be changed": day chips would not toggle,
+times would not edit, colours would not stick.
+
+The editor held the row in React state (`setEditing(block)`) and every control
+wrote through `updateTimeBlock`. The write reached Dexie, but the form kept
+rendering the object it was opened with — so each change was saved and then
+immediately painted back from the stale copy. Controlled inputs made this total:
+`value={block.start_time}` could never move.
+
+It now holds only the id and reads the live row with `useLiveQuery`. The lesson
+generalises: in this codebase a component that both writes a row and renders it
+must read it live, never hold it.
+
+### D-077 · Dragging an agenda was lost inside a `setState` updater — **Bug**
+
+Reported as "drag is overridden by page scroll, almost impossible to drag".
+There were two independent causes, and the second was the fatal one.
+
+**Cause 1 — the browser took the gesture.** The block set
+`touch-action: pan-y`, so within a few pixels of vertical movement the scroller
+claimed the pointer and cancelled the stream before the 200 ms hold could arm a
+drag. On touch, the drag could essentially never start.
+
+**Cause 2 — the commit never ran.** Even with a mouse, where the gesture was
+never stolen, dragging did nothing. The commit was written inside a functional
+`setState` updater:
+
+```ts
+setDrag((current) => {
+  if (commit && active && current && current.deltaMin !== 0) onMove(...);
+  return null;
+});
+active = false;          // ← runs first
+```
+
+React does not invoke the updater synchronously, so by the time it ran, the
+cleanup had already set `active = false` and the guard was always false. The
+write was silently dropped on every drag. (Doing side effects inside an updater
+was the real mistake; the stale flag was just how it surfaced.)
+
+Both are fixed:
+
+- The block now sets `touch-action: none` and owns the gesture outright. Taking
+  the gesture means owing the user scrolling back, so until the hold arms, the
+  block forwards vertical movement to the timeline's scroll pane by hand
+  (`TimelineScrollContext`). A clearly horizontal gesture is released so the
+  day-swipe still works.
+- The delta lives in a ref; the commit happens synchronously in cleanup,
+  outside any updater. State drives only the preview.
+
+Verified with real touch events: a 60 px long-press drag moved 15:35 → 16:15
+(40 minutes at 1.5 px/min), and a quick upward swipe *starting on the block*
+scrolled the pane 1170 → 1282 without moving the agenda.
+
+### D-078 · The agenda block always shows its time range — **Requested**
+
+The range was gated behind `height > 40px`, and a one-pomodoro block is ~38 px —
+so the most common block hid exactly the information it exists to convey. The
+range is now always rendered: beside the title on short blocks, stacked above it
+on taller ones. The dot row keeps a height gate, since it is decoration.
+
+### D-079 · Duration presets, with the pomodoro count derived — **Requested**
+
+10 / 15 / 30 / 60 / 90 / 120 minutes plus a custom field, in both the agenda
+sheet and the Jadwalkan sheet.
+
+This is a deliberate departure from the brief's model, which expresses an
+agenda's length *only* as a pomodoro count (§5.5: `n × focus + (n−1) × break`).
+That is right for planning a week of deep work and clumsy for a ten-minute
+errand.
+
+Reconciled rather than replaced: the preset sets the duration directly, and
+`allocated_pomodoro` is then derived from it with `pomodorosForDuration`. The
+§5.7 dot row and the derived counters in §4.2 therefore stay meaningful at any
+length, and the picker states the equivalence out loud ("≈ 1 pomodoro"). Smart
+allocation still produces exact pomodoro-shaped sessions; only manual editing
+gained the freedom.
+
+### D-080 · Audio unlock must not sit behind an `await` — **Bug**
+
+Reported as "no pomodoro sound". `startFocusSession()` called
+`await unlockAudio()` as its first statement, which looked correct — but the
+*call sites* did work first:
+
+```ts
+onClick={() => void (async () => {
+  const completed = await completedFocusFor(agenda.id);   // ← Dexie read
+  await startFocusSession({ ... });                       // ← unlock happens here
+})()}
+```
+
+By then the call stack no longer belonged to the user gesture, so `resume()`
+was ignored and the AudioContext stayed `suspended`. `playTick`/`playBell` both
+bail on a non-running context, so everything was silent — on desktop as well as
+iOS, not just the iOS case §5.6 warns about.
+
+Split into a synchronous `primeAudio()` (create + `resume()` + silent buffer,
+no awaits) called as the literal first statement of every tap handler, with the
+awaitable `unlockAudio()` kept for callers that genuinely are the gesture's
+first action.
+
+### D-081 · A parent may not be scheduled before its children — **Requested, new rule**
+
+Not in the brief, which treats hierarchy purely as organisation (§4.2) and never
+constrains a parent's timing. Requested for both automatic and manual
+scheduling, and implemented as a **hard** rule in both — unlike the window and
+time-block rules, which §5.1/§5.4 make confirmations. The reason for the
+difference: a parent that starts before its own subtasks is not an unusual
+choice, it is incoherent.
+
+- **Smart allocation.** `SchedulableTodo` gained `parentId` and `depth`, and
+  `sortCandidates` now orders by depth descending *before* the §5.5 criteria —
+  so children are always placed first and a parent's floor is known when its
+  turn comes. Within a depth level the §5.5 order is untouched. The floor also
+  accounts for children scheduled outside this run, via `existingEndByTodo`.
+- **Manual.** `lib/todos/ordering.ts` answers the same question from the other
+  direction. Suggestion lists pass the floor as `notBefore`, so an illegal slot
+  is never offered; drag, long-press-create and the manual picker refuse with a
+  message naming the blocking subtasks.
+
+Verified end to end: with a subtask scheduled at 20:00, the parent's three
+suggested slots began at 20:35 (after the child plus its buffer) instead of
+09:00, and a manual 09:00 placement was refused by name.

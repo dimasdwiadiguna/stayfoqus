@@ -4,6 +4,7 @@ import { AlertTriangle, CloudAlert } from "lucide-react";
 import * as React from "react";
 
 import { PomodoroDots } from "@/components/calendar/pomodoro-dots";
+import { useTimelineScroll } from "@/components/calendar/scroll-context";
 import type { Agenda, IsoDate, Todo } from "@/lib/db/schema";
 import { id as t } from "@/lib/i18n/id";
 import {
@@ -21,8 +22,8 @@ import { cn } from "@/lib/utils";
 
 /** How long a press must be held before the block starts moving (§8). */
 const MOVE_HOLD_MS = 200;
-const MOVE_TOLERANCE_PX = 5;
-const RESIZE_HANDLE_PX = 18;
+const MOVE_TOLERANCE_PX = 8;
+const RESIZE_HANDLE_PX = 22;
 
 /**
  * One agenda on the timeline.
@@ -61,6 +62,7 @@ export function AgendaBlock({
   onResize: (endMs: number) => void;
 }) {
   const settings = useSettings();
+  const scrollRef = useTimelineScroll();
   const shape = {
     focusMin: settings.pomodoro_focus_min,
     shortBreakMin: settings.pomodoro_short_break_min,
@@ -74,6 +76,17 @@ export function AgendaBlock({
     deltaMin: number;
   } | null>(null);
 
+  /**
+   * The authoritative delta for committing a drag.
+   *
+   * It must not be read out of the `drag` state: a functional `setState`
+   * updater does not run synchronously, so by the time React invoked it the
+   * gesture's cleanup had already reset its local flags and the commit was
+   * silently skipped — which is why dragging appeared to do nothing at all.
+   * The state drives the preview; this ref drives the write.
+   */
+  const deltaRef = React.useRef(0);
+
   const top = topFor(startMs, date, timezone) + (drag?.mode === "move" ? minutesToPx(drag.deltaMin) : 0);
   const baseHeight = heightFor(startMs, endMs);
   const height =
@@ -85,40 +98,76 @@ export function AgendaBlock({
   const width = `calc(${100 / columns}% - 4px)`;
   const left = `calc(${(column * 100) / columns}% + 2px)`;
 
-  const beginDrag = (
-    e: React.PointerEvent,
-    mode: "move" | "resize",
-  ) => {
+  /**
+   * Move and resize both start here.
+   *
+   * The block sets `touch-action: none`, so the browser never claims the
+   * gesture — which is what made dragging almost impossible before: with
+   * `pan-y` the scroller took over within a few pixels and cancelled the
+   * pointer stream before the 200 ms hold could arm the drag.
+   *
+   * Taking the gesture means we owe the user scrolling back. Until the hold
+   * arms (`armed`), vertical movement is forwarded to the timeline's scroll
+   * pane by hand, so a swipe that happens to start on a block still scrolls.
+   */
+  const beginDrag = (e: React.PointerEvent, mode: "move" | "resize") => {
     e.stopPropagation();
+
     const originY = e.clientY;
+    const originX = e.clientX;
     const pointerId = e.pointerId;
     const target = e.currentTarget as HTMLElement;
-    let active = mode === "resize";
+    const pane = scrollRef?.current ?? null;
+    const paneStartTop = pane?.scrollTop ?? 0;
+
+    let armed = mode === "resize";
+    /** Set once movement has been claimed as a scroll — no drag after that. */
+    let scrolling = false;
     let holdTimer = 0;
 
-    if (mode === "move") {
-      holdTimer = window.setTimeout(() => {
-        active = true;
-        setDrag({ mode, deltaMin: 0 });
-        target.setPointerCapture(pointerId);
-      }, MOVE_HOLD_MS);
-    } else {
+    const arm = () => {
+      if (scrolling) return;
+      armed = true;
+      deltaRef.current = 0;
       setDrag({ mode, deltaMin: 0 });
-      target.setPointerCapture(pointerId);
-    }
+      try {
+        target.setPointerCapture(pointerId);
+      } catch {
+        /* the pointer already ended */
+      }
+      // A drag is a deliberate act; confirm it in the hand.
+      navigator.vibrate?.(8);
+    };
+
+    if (mode === "move") holdTimer = window.setTimeout(arm, MOVE_HOLD_MS);
+    else arm();
 
     const onPointerMove = (ev: PointerEvent) => {
       const dyPx = ev.clientY - originY;
-      if (!active) {
-        // Moving before the hold elapses means the user is scrolling.
-        if (Math.abs(dyPx) > MOVE_TOLERANCE_PX) cleanup(false);
+
+      if (!armed) {
+        const dxPx = ev.clientX - originX;
+        // A clearly horizontal gesture is the day swipe; let it through
+        // untouched by ending our involvement.
+        if (Math.abs(dxPx) > Math.abs(dyPx) && Math.abs(dxPx) > MOVE_TOLERANCE_PX) {
+          cleanup(false);
+          return;
+        }
+        if (Math.abs(dyPx) > MOVE_TOLERANCE_PX) {
+          scrolling = true;
+          window.clearTimeout(holdTimer);
+        }
+        if (scrolling && pane) pane.scrollTop = paneStartTop - dyPx;
         return;
       }
+
+      ev.preventDefault();
       const rawMin = pxToMinutes(dyPx);
       const deltaMin =
         mode === "move"
           ? snapMinutes(rawMin, MOVE_SNAP_MIN)
           : snapToPomodoro(baseHeight, rawMin, shape);
+      deltaRef.current = deltaMin;
       setDrag({ mode, deltaMin });
     };
 
@@ -135,31 +184,50 @@ export function AgendaBlock({
         /* capture was never taken */
       }
 
-      setDrag((current) => {
-        if (commit && active && current && current.deltaMin !== 0) {
-          if (current.mode === "move") {
-            onMove(startMs + current.deltaMin * MINUTE_MS);
-          } else {
-            onResize(endMs + current.deltaMin * MINUTE_MS);
-          }
-        }
-        return null;
-      });
-      active = false;
+      const deltaMin = deltaRef.current;
+      const shouldCommit = commit && armed && !scrolling && deltaMin !== 0;
+
+      armed = false;
+      deltaRef.current = 0;
+      setDrag(null);
+
+      // Committed outside the state updater, synchronously, so the write
+      // cannot be lost to React's scheduling.
+      if (shouldCommit) {
+        if (mode === "move") onMove(startMs + deltaMin * MINUTE_MS);
+        else onResize(endMs + deltaMin * MINUTE_MS);
+      }
     };
 
-    window.addEventListener("pointermove", onPointerMove);
+    window.addEventListener("pointermove", onPointerMove, { passive: false });
     window.addEventListener("pointerup", onPointerUp);
     window.addEventListener("pointercancel", onPointerUp);
   };
 
   const title = agenda.title_override ?? todo?.title ?? t.agenda.title;
+  const timeRange = formatTimeRange(agenda.start_at, agenda.end_at, timezone);
+  /** Below two lines of text, the title and the range share one row. */
+  const short = height < 40 || compact;
+
+  const badges = (
+    <>
+      {agenda.gcal_conflict ? (
+        <CloudAlert
+          className="size-3 shrink-0 text-warning"
+          aria-label={t.calendar.gcalConflict}
+        />
+      ) : null}
+      {agenda.outside_window ? (
+        <AlertTriangle className="size-3 shrink-0 text-warning" aria-hidden />
+      ) : null}
+    </>
+  );
 
   return (
     <div
       role="button"
       tabIndex={0}
-      aria-label={`${title} ${formatTimeRange(agenda.start_at, agenda.end_at, timezone)}`}
+      aria-label={`${title} ${timeRange}`}
       onPointerDown={(e) => beginDrag(e, "move")}
       onClick={() => !drag && onOpen()}
       onKeyDown={(e) => {
@@ -178,7 +246,9 @@ export function AgendaBlock({
         agenda.status === "missed" && "border-danger/50 bg-danger/12",
         drag && "shadow-lg ring-2 ring-accent",
       )}
-      style={{ top, height, left, width, touchAction: drag ? "none" : "pan-y" }}
+      // The block owns the gesture; scrolling is forwarded by hand in
+      // `beginDrag` so a swipe starting here still moves the timeline.
+      style={{ top, height, left, width, touchAction: "none" }}
     >
       {/* buffer stripes — thin, muted, attached to the block (§5.2) */}
       {agenda.buffer_before_min > 0 ? (
@@ -205,28 +275,37 @@ export function AgendaBlock({
         />
       ) : null}
 
-      <div className="flex items-start gap-1">
-        <span className="min-w-0 flex-1 truncate text-[12px] font-medium leading-tight">
-          {title}
-        </span>
-        {agenda.gcal_conflict ? (
-          <CloudAlert
-            className="size-3 shrink-0 text-warning"
-            aria-label={t.calendar.gcalConflict}
-          />
-        ) : null}
-        {agenda.outside_window ? (
-          <AlertTriangle className="size-3 shrink-0 text-warning" aria-hidden />
-        ) : null}
-      </div>
-
-      {!compact && height > 40 ? (
-        <div className="mt-0.5 text-[10px] tabular-nums text-fg-muted">
-          {formatTimeRange(agenda.start_at, agenda.end_at, timezone)}
+      {/*
+        The time range is always rendered, not only when the block is tall
+        enough — a single-pomodoro block is ~38px, which used to fall below the
+        old threshold and hide exactly the information the block exists to give.
+        Short blocks put the range beside the title; taller ones stack it.
+      */}
+      {short ? (
+        <div className="flex min-w-0 items-baseline gap-1.5">
+          <span className="shrink-0 text-[10px] tabular-nums text-fg-muted">
+            {timeRange}
+          </span>
+          <span className="min-w-0 flex-1 truncate text-[12px] font-medium leading-tight">
+            {title}
+          </span>
+          {badges}
         </div>
-      ) : null}
+      ) : (
+        <>
+          <div className="flex items-start gap-1">
+            <span className="min-w-0 flex-1 truncate text-[12px] font-medium leading-tight">
+              {title}
+            </span>
+            {badges}
+          </div>
+          <div className="mt-0.5 text-[10px] tabular-nums text-fg-muted">
+            {timeRange}
+          </div>
+        </>
+      )}
 
-      {height > 58 ? (
+      {height > 62 ? (
         <PomodoroDots
           allocated={agenda.allocated_pomodoro}
           completed={completed}

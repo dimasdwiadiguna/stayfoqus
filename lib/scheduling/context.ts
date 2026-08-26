@@ -130,6 +130,7 @@ export function toSchedulable(
   todo: Todo,
   remainingToAllocate: number,
   blocked: boolean,
+  depth = 1,
 ): SchedulableTodo {
   return {
     id: todo.id,
@@ -141,6 +142,8 @@ export function toSchedulable(
     createdAt: todo.created_at,
     remainingToAllocate,
     blocked,
+    parentId: todo.parent_id,
+    depth,
   };
 }
 
