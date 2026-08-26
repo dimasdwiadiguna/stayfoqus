@@ -4,11 +4,12 @@ import { useLiveQuery } from "dexie-react-hooks";
 import { Trash2 } from "lucide-react";
 import * as React from "react";
 
+import { BufferSwatch } from "@/components/calendar/buffer-band";
 import { DurationPicker } from "@/components/calendar/duration-picker";
 import { PomodoroDots } from "@/components/calendar/pomodoro-dots";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/dialog";
-import { Field, Input, Select } from "@/components/ui/field";
+import { Chip, Field, Input } from "@/components/ui/field";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { usePomodoroLogs } from "@/hooks/use-tasks";
 import { useSettings } from "@/hooks/use-settings";
@@ -19,10 +20,56 @@ import { id as t } from "@/lib/i18n/id";
 import { instantAt, localDate, localTime } from "@/lib/time";
 import { countsAsUsed } from "@/lib/todos/derived";
 
-const BUFFER_TYPES: { value: BufferType; label: string }[] = [
-  { value: "switch", label: t.agenda.bufferSwitch },
-  { value: "commute", label: t.agenda.bufferCommute },
-];
+const BUFFER_TYPES: BufferType[] = ["switch", "commute"];
+
+/**
+ * §5.2 — the buffer editor.
+ *
+ * The type is picked with the same swatches the timeline draws, so the choice
+ * made here is recognisable there. It matters more than a usual enum: the two
+ * types compose differently (max within a type, sum across), so the user has to
+ * be able to tell at a glance which one an agenda carries.
+ */
+function BufferField({
+  label,
+  minutes,
+  type,
+  onMinutes,
+  onType,
+}: {
+  label: string;
+  minutes: number;
+  type: BufferType;
+  onMinutes: (minutes: number) => void;
+  onType: (type: BufferType) => void;
+}) {
+  return (
+    <Field label={label}>
+      <Input
+        type="number"
+        min={0}
+        step={5}
+        value={minutes}
+        aria-label={label}
+        onChange={(e) => onMinutes(Math.max(0, Number(e.target.value)))}
+      />
+      <div className="mt-1.5 flex flex-wrap gap-1.5">
+        {BUFFER_TYPES.map((value) => (
+          <Chip
+            key={value}
+            active={type === value}
+            aria-label={
+              value === "commute" ? t.agenda.bufferCommute : t.agenda.bufferSwitch
+            }
+            onClick={() => onType(value)}
+          >
+            <BufferSwatch type={value} />
+          </Chip>
+        ))}
+      </div>
+    </Field>
+  );
+}
 
 export function AgendaSheet({
   agendaId,
@@ -184,56 +231,28 @@ function AgendaSheetContent({
         </Field>
 
         <div className="grid grid-cols-2 gap-3">
-          <Field label={t.agenda.fieldBufferBefore}>
-            <Input
-              type="number"
-              min={0}
-              step={5}
-              value={agenda.buffer_before_min}
-              onChange={(e) =>
-                void updateAgenda(agenda.id, {
-                  buffer_before_min: Math.max(0, Number(e.target.value)),
-                })
-              }
-            />
-            <div className="mt-1.5">
-              <Select
-                ariaLabel={t.agenda.fieldBufferBefore}
-                value={agenda.buffer_before_type}
-                onValueChange={(v) =>
-                  void updateAgenda(agenda.id, {
-                    buffer_before_type: v as BufferType,
-                  })
-                }
-                items={BUFFER_TYPES}
-              />
-            </div>
-          </Field>
-          <Field label={t.agenda.fieldBufferAfter}>
-            <Input
-              type="number"
-              min={0}
-              step={5}
-              value={agenda.buffer_after_min}
-              onChange={(e) =>
-                void updateAgenda(agenda.id, {
-                  buffer_after_min: Math.max(0, Number(e.target.value)),
-                })
-              }
-            />
-            <div className="mt-1.5">
-              <Select
-                ariaLabel={t.agenda.fieldBufferAfter}
-                value={agenda.buffer_after_type}
-                onValueChange={(v) =>
-                  void updateAgenda(agenda.id, {
-                    buffer_after_type: v as BufferType,
-                  })
-                }
-                items={BUFFER_TYPES}
-              />
-            </div>
-          </Field>
+          <BufferField
+            label={t.agenda.fieldBufferBefore}
+            minutes={agenda.buffer_before_min}
+            type={agenda.buffer_before_type}
+            onMinutes={(buffer_before_min) =>
+              void updateAgenda(agenda.id, { buffer_before_min })
+            }
+            onType={(buffer_before_type) =>
+              void updateAgenda(agenda.id, { buffer_before_type })
+            }
+          />
+          <BufferField
+            label={t.agenda.fieldBufferAfter}
+            minutes={agenda.buffer_after_min}
+            type={agenda.buffer_after_type}
+            onMinutes={(buffer_after_min) =>
+              void updateAgenda(agenda.id, { buffer_after_min })
+            }
+            onType={(buffer_after_type) =>
+              void updateAgenda(agenda.id, { buffer_after_type })
+            }
+          />
         </div>
       </div>
 

@@ -156,6 +156,7 @@ export const id = {
     scheduleAnyway: "Tetap jadwalkan",
     placeAnyway: "Tetap tempatkan",
     busy: "Sibuk",
+    legend: "Keterangan",
     outsideWindowBadge: "Di luar jam produktif",
     gcalConflict: "Diubah dari Google Calendar",
     draft: "Draf",
@@ -171,6 +172,10 @@ export const id = {
     fieldBufferAfter: "Buffer sesudah",
     bufferSwitch: "Ganti fokus",
     bufferCommute: "Perjalanan",
+    bufferBeforeLabel: (minutes: string, type: string) =>
+      `${type} ${minutes} sebelum`,
+    bufferAfterLabel: (minutes: string, type: string) =>
+      `${type} ${minutes} sesudah`,
     deleteConfirmTitle: "Hapus agenda?",
     deleteConfirmBody: "Agenda dihapus, todo tetap ada di daftar.",
     deleted: "Agenda dihapus, todo tetap ada di daftar.",

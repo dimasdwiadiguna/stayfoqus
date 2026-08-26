@@ -925,3 +925,40 @@ choice, it is incoherent.
 Verified end to end: with a subtask scheduled at 20:00, the parent's three
 suggested slots began at 20:35 (after the child plus its buffer) instead of
 09:00, and a manual 09:00 placement was refused by name.
+
+### D-082 · Buffers are drawn as the block of time they consume — **Requested**
+
+§5.2 asks for "a thin, muted stripe attached to the agenda block", and that is
+literally what existed: two 2 px lines *inside* the block's own edges. In
+practice it was invisible, and it gave no way to tell the two buffer types
+apart — which matters more here than in most apps, because the types compose
+differently (`max` within a type, `+` across, §5.2). A user cannot reason about
+a gap they cannot see.
+
+The band now occupies the real minutes the buffer reserves, immediately before
+or after the block, so the schedulable space it eats is legible at a glance.
+Kept subordinate to the agenda: faint fill, wide-gapped weave, a solid edge only
+on the side that touches the block, and `pointer-events: none` so it can never
+steal the touch that starts a drag.
+
+The two types are distinguished three ways over, so neither colour nor pattern
+has to carry it alone — which also keeps it readable for colour-blind users and
+in both themes:
+
+| | colour | pattern | icon |
+|---|---|---|---|
+| `switch` | cool slate `--buffer-switch` | horizontal weave (sitting still) | ⇄ |
+| `commute` | warm bronze `--buffer-commute` | diagonal stripes (motion) | car |
+
+Bronze rather than amber deliberately: `--warning` is already amber, and a
+buffer is not a warning.
+
+The same swatch component renders in three places so the language stays one
+language: the timeline band, the legend in the calendar header (shown only on
+days that actually have a buffer), and the type picker in the agenda sheet —
+which replaced a plain dropdown, so the choice made there is recognisable on the
+timeline afterwards.
+
+A first pass used denser stripes and the commute band ended up louder than the
+agenda it belonged to, inverting the hierarchy; the weave was thinned until the
+agenda clearly reads first.
