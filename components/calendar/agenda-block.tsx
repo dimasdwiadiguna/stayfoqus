@@ -3,6 +3,7 @@
 import { AlertTriangle, CloudAlert } from "lucide-react";
 import * as React from "react";
 
+import { BufferBand } from "@/components/calendar/buffer-band";
 import { PomodoroDots } from "@/components/calendar/pomodoro-dots";
 import { useTimelineScroll } from "@/components/calendar/scroll-context";
 import type { Agenda, IsoDate, Todo } from "@/lib/db/schema";
@@ -87,11 +88,16 @@ export function AgendaBlock({
    */
   const deltaRef = React.useRef(0);
 
-  const top = topFor(startMs, date, timezone) + (drag?.mode === "move" ? minutesToPx(drag.deltaMin) : 0);
+  const top =
+    topFor(startMs, date, timezone) +
+    (drag?.mode === "move" ? minutesToPx(drag.deltaMin) : 0);
   const baseHeight = heightFor(startMs, endMs);
   const height =
     drag?.mode === "resize"
-      ? Math.max(minutesToPx(shape.focusMin), baseHeight + minutesToPx(drag.deltaMin))
+      ? Math.max(
+          minutesToPx(shape.focusMin),
+          baseHeight + minutesToPx(drag.deltaMin),
+        )
       : baseHeight;
 
   const isDraft = agenda.status === "draft";
@@ -149,7 +155,10 @@ export function AgendaBlock({
         const dxPx = ev.clientX - originX;
         // A clearly horizontal gesture is the day swipe; let it through
         // untouched by ending our involvement.
-        if (Math.abs(dxPx) > Math.abs(dyPx) && Math.abs(dxPx) > MOVE_TOLERANCE_PX) {
+        if (
+          Math.abs(dxPx) > Math.abs(dyPx) &&
+          Math.abs(dxPx) > MOVE_TOLERANCE_PX
+        ) {
           cleanup(false);
           return;
         }
@@ -223,106 +232,120 @@ export function AgendaBlock({
     </>
   );
 
+  const beforePx = minutesToPx(agenda.buffer_before_min);
+  const afterPx = minutesToPx(agenda.buffer_after_min);
+
   return (
-    <div
-      role="button"
-      tabIndex={0}
-      aria-label={`${title} ${timeRange}`}
-      onPointerDown={(e) => beginDrag(e, "move")}
-      onClick={() => !drag && onOpen()}
-      onKeyDown={(e) => {
-        if (e.key === "Enter" || e.key === " ") {
-          e.preventDefault();
-          onOpen();
-        }
-      }}
-      className={cn(
-        "absolute z-10 overflow-hidden rounded-md border px-1.5 py-1 text-left transition-shadow",
-        isDraft
-          ? "border-dashed border-accent bg-accent-soft/70"
-          : "border-accent/50 bg-accent-soft",
-        agenda.status === "done" && "border-success/50 bg-success/12",
-        agenda.status === "partial" && "border-warning/50 bg-warning/12",
-        agenda.status === "missed" && "border-danger/50 bg-danger/12",
-        drag && "shadow-lg ring-2 ring-accent",
-      )}
-      // The block owns the gesture; scrolling is forwarded by hand in
-      // `beginDrag` so a swipe starting here still moves the timeline.
-      style={{ top, height, left, width, touchAction: "none" }}
-    >
-      {/* buffer stripes — thin, muted, attached to the block (§5.2) */}
-      {agenda.buffer_before_min > 0 ? (
-        <span
-          aria-hidden
-          className="absolute inset-x-0 -top-px bg-fg-subtle/25"
-          style={{ height: 2 }}
-          title={`${agenda.buffer_before_min} ${t.common.minutesShort}`}
-        />
-      ) : null}
-      {agenda.buffer_after_min > 0 ? (
-        <span
-          aria-hidden
-          className="absolute inset-x-0 -bottom-px bg-fg-subtle/25"
-          style={{ height: 2 }}
-        />
-      ) : null}
-
-      {agenda.outside_window ? (
-        <span
-          aria-hidden
-          title={t.calendar.outsideWindowBadge}
-          className="absolute inset-y-0 left-0 w-1 bg-warning"
-        />
-      ) : null}
-
+    <>
       {/*
+        §5.2 buffers, drawn as the time they actually consume so the gap the
+        scheduler reserves is visible. They sit outside the block, immediately
+        above and below it, and follow it while it is being dragged.
+      */}
+      <BufferBand
+        type={agenda.buffer_before_type}
+        minutes={agenda.buffer_before_min}
+        side="before"
+        top={top - beforePx}
+        height={beforePx}
+        left={left}
+        width={width}
+        dimmed={isDraft}
+      />
+      <BufferBand
+        type={agenda.buffer_after_type}
+        minutes={agenda.buffer_after_min}
+        side="after"
+        top={top + height}
+        height={afterPx}
+        left={left}
+        width={width}
+        dimmed={isDraft}
+      />
+
+      <div
+        role="button"
+        tabIndex={0}
+        aria-label={`${title} ${timeRange}`}
+        onPointerDown={(e) => beginDrag(e, "move")}
+        onClick={() => !drag && onOpen()}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            onOpen();
+          }
+        }}
+        className={cn(
+          "absolute z-10 overflow-hidden rounded-md border px-1.5 py-1 text-left transition-shadow",
+          isDraft
+            ? "border-dashed border-accent bg-accent-soft/70"
+            : "border-accent/50 bg-accent-soft",
+          agenda.status === "done" && "border-success/50 bg-success/12",
+          agenda.status === "partial" && "border-warning/50 bg-warning/12",
+          agenda.status === "missed" && "border-danger/50 bg-danger/12",
+          drag && "shadow-lg ring-2 ring-accent",
+        )}
+        // The block owns the gesture; scrolling is forwarded by hand in
+        // `beginDrag` so a swipe starting here still moves the timeline.
+        style={{ top, height, left, width, touchAction: "none" }}
+      >
+        {agenda.outside_window ? (
+          <span
+            aria-hidden
+            title={t.calendar.outsideWindowBadge}
+            className="absolute inset-y-0 left-0 w-1 bg-warning"
+          />
+        ) : null}
+
+        {/*
         The time range is always rendered, not only when the block is tall
         enough — a single-pomodoro block is ~38px, which used to fall below the
         old threshold and hide exactly the information the block exists to give.
         Short blocks put the range beside the title; taller ones stack it.
       */}
-      {short ? (
-        <div className="flex min-w-0 items-baseline gap-1.5">
-          <span className="shrink-0 text-[10px] tabular-nums text-fg-muted">
-            {timeRange}
-          </span>
-          <span className="min-w-0 flex-1 truncate text-[12px] font-medium leading-tight">
-            {title}
-          </span>
-          {badges}
-        </div>
-      ) : (
-        <>
-          <div className="flex items-start gap-1">
+        {short ? (
+          <div className="flex min-w-0 items-baseline gap-1.5">
+            <span className="shrink-0 text-[10px] tabular-nums text-fg-muted">
+              {timeRange}
+            </span>
             <span className="min-w-0 flex-1 truncate text-[12px] font-medium leading-tight">
               {title}
             </span>
             {badges}
           </div>
-          <div className="mt-0.5 text-[10px] tabular-nums text-fg-muted">
-            {timeRange}
-          </div>
-        </>
-      )}
+        ) : (
+          <>
+            <div className="flex items-start gap-1">
+              <span className="min-w-0 flex-1 truncate text-[12px] font-medium leading-tight">
+                {title}
+              </span>
+              {badges}
+            </div>
+            <div className="mt-0.5 text-[10px] tabular-nums text-fg-muted">
+              {timeRange}
+            </div>
+          </>
+        )}
 
-      {height > 62 ? (
-        <PomodoroDots
-          allocated={agenda.allocated_pomodoro}
-          completed={completed}
-          running={running}
-          className="mt-1"
+        {height > 62 ? (
+          <PomodoroDots
+            allocated={agenda.allocated_pomodoro}
+            completed={completed}
+            running={running}
+            className="mt-1"
+          />
+        ) : null}
+
+        {/* resize handle — §8: snaps to whole pomodoro durations */}
+        <span
+          role="separator"
+          aria-label={t.agenda.fieldEnd}
+          onPointerDown={(e) => beginDrag(e, "resize")}
+          className="absolute inset-x-0 bottom-0 cursor-ns-resize"
+          style={{ height: RESIZE_HANDLE_PX, touchAction: "none" }}
         />
-      ) : null}
-
-      {/* resize handle — §8: snaps to whole pomodoro durations */}
-      <span
-        role="separator"
-        aria-label={t.agenda.fieldEnd}
-        onPointerDown={(e) => beginDrag(e, "resize")}
-        className="absolute inset-x-0 bottom-0 cursor-ns-resize"
-        style={{ height: RESIZE_HANDLE_PX, touchAction: "none" }}
-      />
-    </div>
+      </div>
+    </>
   );
 }
 

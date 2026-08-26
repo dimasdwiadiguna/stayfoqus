@@ -35,6 +35,15 @@
   --prayer: #57c9b6;
   --busy: #545b66;
 
+  /*
+   * §5.2 buffers. The two types mean different things and compose differently,
+   * so they read differently: `switch` is a mental reset — cool, close to the
+   * accent family; `commute` is physical travel — a warm bronze, deliberately
+   * desaturated so it is never mistaken for the amber warning colour.
+   */
+  --buffer-switch: #6b82a8;
+  --buffer-commute: #b0885f;
+
   --ring: #7c9cff;
 }
 
@@ -65,6 +74,9 @@
   --prayer: #1a8f80;
   --busy: #a7aeb9;
 
+  --buffer-switch: #5b73a0;
+  --buffer-commute: #966b41;
+
   --ring: #3b62e0;
 }
 
@@ -91,6 +103,8 @@
   --color-overtime: var(--overtime);
   --color-prayer: var(--prayer);
   --color-busy: var(--busy);
+  --color-buffer-switch: var(--buffer-switch);
+  --color-buffer-commute: var(--buffer-commute);
   --color-ring: var(--ring);
 
   --font-sans:

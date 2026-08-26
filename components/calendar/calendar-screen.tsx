@@ -8,6 +8,7 @@ import {
   CreateAtSheet,
   type CreateAtRequest,
 } from "@/components/calendar/create-at-sheet";
+import { BufferSwatch } from "@/components/calendar/buffer-band";
 import { DraftBar } from "@/components/calendar/draft-bar";
 import { TimelineScrollContext } from "@/components/calendar/scroll-context";
 import { HourGutter, TimelineDay } from "@/components/calendar/timeline";
@@ -77,10 +78,13 @@ export function CalendarScreen() {
   const scrollRef = React.useRef<HTMLDivElement>(null);
   const scrolledFor = React.useRef<string>("");
 
-  const days: IsoDate[] =
-    view === "three"
-      ? [anchor, addDays(anchor, 1), addDays(anchor, 2)]
-      : [anchor];
+  const days: IsoDate[] = React.useMemo(
+    () =>
+      view === "three"
+        ? [anchor, addDays(anchor, 1), addDays(anchor, 2)]
+        : [anchor],
+    [view, anchor],
+  );
 
   const rangeTo =
     view === "list"
@@ -158,6 +162,18 @@ export function CalendarScreen() {
     const free = buildFreeSpace(dayWindows, dayBusy);
     return { count: list.length, allocated, freeMin: freeMinutes(free) };
   }, [agendasForDay, anchor, world.windows, world.busy]);
+
+  const hasBuffers = React.useMemo(
+    () =>
+      days.some((date) =>
+        agendasForDay(date).some(
+          (a) =>
+            a.status !== "cancelled" &&
+            (a.buffer_before_min > 0 || a.buffer_after_min > 0),
+        ),
+      ),
+    [days, agendasForDay],
+  );
 
   /* ---------------- move / resize (§5.1, §5.4 soft confirmations) -------- */
 
@@ -301,6 +317,18 @@ export function CalendarScreen() {
               </span>
             ) : null}
           </div>
+
+          {/*
+            §5.2's two buffer types are only useful if they can be told apart on
+            the timeline, so the key sits with the view it explains. Shown only
+            when the day actually has a buffer to decode.
+          */}
+          {view !== "list" && hasBuffers ? (
+            <div className="flex items-center gap-3">
+              <BufferSwatch type="switch" />
+              <BufferSwatch type="commute" />
+            </div>
+          ) : null}
         </div>
       }
       // The timeline pane owns its scrolling; only the list view uses the
