@@ -18,7 +18,12 @@ import * as React from "react";
 
 import { EmptyState, Screen, ScreenTitle } from "@/components/shell/screen";
 import { SyncIndicator } from "@/components/shell/sync-indicator";
+import {
+  MissedBanner,
+  MissedReviewSheet,
+} from "@/components/tasks/missed-review";
 import { QuickCapture } from "@/components/tasks/quick-capture";
+import { TodayHeader } from "@/components/tasks/today-header";
 import { TaskDetailSheet } from "@/components/tasks/task-detail-sheet";
 import { TaskRow } from "@/components/tasks/task-row";
 import { ConfirmDialog } from "@/components/ui/dialog";
@@ -72,6 +77,7 @@ export function TasksScreen({
   const [expanded, setExpanded] = React.useState<Set<UUID>>(new Set());
   const [openTodoId, setOpenTodoId] = React.useState<UUID | null>(null);
   const [dialog, setDialog] = React.useState<PendingDialog>(null);
+  const [reviewOpen, setReviewOpen] = React.useState(false);
 
   const today = localDate(new Date(), settings.timezone);
   const tags = React.useMemo(() => allTags(data.todos), [data.todos]);
@@ -217,6 +223,7 @@ export function TasksScreen({
       header={
         <div className="space-y-2.5">
           <ScreenTitle title={t.tasks.title} actions={<SyncIndicator />} />
+          <TodayHeader />
           <div className="flex items-center gap-2">
             <Segmented
               className="min-w-0"
@@ -262,6 +269,8 @@ export function TasksScreen({
         </div>
       }
     >
+      <MissedBanner onOpen={() => setReviewOpen(true)} />
+
       {groups.length === 0 ? (
         <EmptyState
           title={
@@ -306,6 +315,11 @@ export function TasksScreen({
           </div>
         </DndContext>
       )}
+
+      <MissedReviewSheet
+        open={reviewOpen}
+        onClose={() => setReviewOpen(false)}
+      />
 
       <QuickCapture categories={data.categories} timezone={settings.timezone} />
 

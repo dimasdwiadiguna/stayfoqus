@@ -8,6 +8,7 @@ import {
   CreateAtSheet,
   type CreateAtRequest,
 } from "@/components/calendar/create-at-sheet";
+import { DraftBar } from "@/components/calendar/draft-bar";
 import { HourGutter, TimelineDay } from "@/components/calendar/timeline";
 import { EmptyState, Screen, ScreenTitle } from "@/components/shell/screen";
 import { SyncIndicator } from "@/components/shell/sync-indicator";
@@ -25,6 +26,7 @@ import { usePomodoroLogs, useTaskData } from "@/hooks/use-tasks";
 import { useSchedulingWorld } from "@/hooks/use-scheduling";
 import { useSettings } from "@/hooks/use-settings";
 import { deleteAgenda, restoreAgenda, updateAgenda } from "@/lib/agendas/repo";
+import { toggleSkip } from "@/lib/timeblocks/repo";
 import { HOUR_HEIGHT, instantForPx } from "@/lib/calendar/geometry";
 import type { Agenda, IsoDate, UUID } from "@/lib/db/schema";
 import { id as t } from "@/lib/i18n/id";
@@ -326,6 +328,17 @@ export function CalendarScreen() {
                   onOpenAgenda={(agenda) => setOpenAgendaId(agenda.id)}
                   onMoveAgenda={onMoveAgenda}
                   onResizeAgenda={onResizeAgenda}
+                  onToggleBlockSkip={(block) => {
+                    void (async () => {
+                      const skipped = await toggleSkip(block.timeBlockId, block.date);
+                      toast.undoable(
+                        skipped
+                          ? t.settings.timeBlockSkipped
+                          : t.settings.timeBlockUnskip,
+                        () => void toggleSkip(block.timeBlockId, block.date),
+                      );
+                    })();
+                  }}
                   onCreateAt={(px) => {
                     const startMs = instantForPx(px, date, settings.timezone, 15);
                     setCreateAt({
@@ -342,6 +355,8 @@ export function CalendarScreen() {
           </div>
         </div>
       )}
+
+      <DraftBar />
 
       <CreateAtSheet request={createAt} onClose={() => setCreateAt(null)} />
 

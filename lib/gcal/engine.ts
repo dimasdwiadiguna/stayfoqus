@@ -2,6 +2,8 @@
 
 import { expireConflictBadges } from "@/lib/agendas/repo";
 import { pullGoogleCalendar } from "@/lib/gcal/pull";
+import { getSupabase } from "@/lib/supabase/client";
+import { isSupabaseConfigured } from "@/lib/supabase/env";
 
 /**
  * §6.3 sync triggers: app foreground, manual pull-to-refresh, and every
@@ -16,11 +18,25 @@ let started = false;
 let timer: ReturnType<typeof setInterval> | null = null;
 let running = false;
 
+/**
+ * Google is only reachable through an authenticated session. Checking locally
+ * first keeps a signed-out or local-only install from firing a 401 at the
+ * server every five minutes — the request would be correct but the noise is not.
+ */
+async function canPull(): Promise<boolean> {
+  if (!isSupabaseConfigured()) return false;
+  const supabase = getSupabase();
+  if (!supabase) return false;
+  const { data } = await supabase.auth.getSession();
+  return Boolean(data.session);
+}
+
 async function runOnce(): Promise<void> {
   if (running) return;
   if (typeof navigator !== "undefined" && !navigator.onLine) return;
   running = true;
   try {
+    if (!(await canPull())) return;
     await pullGoogleCalendar();
     await expireConflictBadges();
   } catch (err) {

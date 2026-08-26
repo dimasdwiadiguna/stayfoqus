@@ -1,6 +1,7 @@
-import type { IsoDate } from "@/lib/db/schema";
+import type { IsoDate, UUID } from "@/lib/db/schema";
 import { byStart } from "@/lib/scheduling/intervals";
 import type {
+  BufferSide,
   BusyInterval,
   EdgeKind,
   FreeInterval,
@@ -119,36 +120,57 @@ export function buildFreeSpace(
   return out.sort(byStart);
 }
 
+export interface Placement {
+  /** Core start of the placed agenda, without buffers. */
+  start: number;
+  /** Core end of the placed agenda, without buffers. */
+  end: number;
+  agendaId: UUID;
+  bufferBefore: BufferSide;
+  bufferAfter: BufferSide;
+}
+
 /**
- * Removes a placed interval from the map, splitting the interval it landed in.
+ * Removes a placed agenda from the map, splitting the interval it landed in.
  * The allocator calls this after each placement (§5.5 Step 3: "update the
  * free-space map"), so later candidates see the space as taken.
+ *
+ * The removed span is the agenda's *footprint* — core plus both buffers —
+ * exactly as `buildFreeSpace` treats an existing agenda. Removing only the core
+ * would leave the surviving edges claiming a buffer that was never carved out,
+ * and the next placement would butt straight up against this one.
  */
 export function occupy(
   free: readonly FreeInterval[],
-  placed: { start: number; end: number; edgeBefore: EdgeKind; edgeAfter: EdgeKind },
+  placed: Placement,
 ): FreeInterval[] {
+  const footprintStart = placed.start - placed.bufferBefore.min * 60_000;
+  const footprintEnd = placed.end + placed.bufferAfter.min * 60_000;
+
+  const edgeBefore: EdgeKind = {
+    kind: "agenda",
+    agendaId: placed.agendaId,
+    buffer: placed.bufferBefore,
+  };
+  const edgeAfter: EdgeKind = {
+    kind: "agenda",
+    agendaId: placed.agendaId,
+    buffer: placed.bufferAfter,
+  };
+
   const out: FreeInterval[] = [];
 
   for (const interval of free) {
-    if (placed.end <= interval.start || placed.start >= interval.end) {
+    if (footprintEnd <= interval.start || footprintStart >= interval.end) {
       out.push(interval);
       continue;
     }
 
-    if (placed.start > interval.start) {
-      out.push({
-        ...interval,
-        end: placed.start,
-        after: placed.edgeBefore,
-      });
+    if (footprintStart > interval.start) {
+      out.push({ ...interval, end: footprintStart, after: edgeBefore });
     }
-    if (placed.end < interval.end) {
-      out.push({
-        ...interval,
-        start: placed.end,
-        before: placed.edgeAfter,
-      });
+    if (footprintEnd < interval.end) {
+      out.push({ ...interval, start: footprintEnd, before: edgeAfter });
     }
   }
 

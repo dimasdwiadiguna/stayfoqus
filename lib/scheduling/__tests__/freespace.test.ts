@@ -141,41 +141,47 @@ describe("§5.5 Step 1 — free-space map", () => {
 });
 
 describe("occupy — updating the map after a placement", () => {
-  const edgeBefore = { kind: "agenda" as const, agendaId: "new", buffer: sw(0) };
-  const edgeAfter = { kind: "agenda" as const, agendaId: "new", buffer: sw(10) };
+  const placement = (from: string, to: string, before = sw(0), after = sw(0)) => ({
+    start: at(DAY, from),
+    end: at(DAY, to),
+    agendaId: "new",
+    bufferBefore: before,
+    bufferAfter: after,
+  });
 
   it("splits the interval the placement landed in", () => {
     const free = buildFreeSpace(windows(), []);
-    const next = occupy(free, {
-      start: at(DAY, "10:00"),
-      end: at(DAY, "10:55"),
-      edgeBefore,
-      edgeAfter,
-    });
+    const next = occupy(free, placement("10:00", "10:55"));
     expect(next.map(fmt)).toEqual(["09:00–10:00", "10:55–17:00"]);
-    expect(next[0]!.after).toEqual(edgeBefore);
-    expect(next[1]!.before).toEqual(edgeAfter);
+    expect(next[0]!.after).toEqual({
+      kind: "agenda",
+      agendaId: "new",
+      buffer: sw(0),
+    });
+  });
+
+  it("removes the placement's buffers from the map too", () => {
+    // Without this, the next candidate could start the instant this one ends,
+    // and the §5.2 gap accounting would double-count the same buffer.
+    const free = buildFreeSpace(windows(), []);
+    const next = occupy(free, placement("10:00", "10:55", sw(15), sw(10)));
+    expect(next.map(fmt)).toEqual(["09:00–09:45", "11:05–17:00"]);
+    expect(next[1]!.before).toEqual({
+      kind: "agenda",
+      agendaId: "new",
+      buffer: sw(10),
+    });
   });
 
   it("removes an interval consumed exactly", () => {
     const free = buildFreeSpace(windows(), [agendaBusy("10:00", "17:00")]);
-    const next = occupy(free, {
-      start: at(DAY, "09:00"),
-      end: at(DAY, "10:00"),
-      edgeBefore,
-      edgeAfter,
-    });
+    const next = occupy(free, placement("09:00", "10:00"));
     expect(next).toEqual([]);
   });
 
   it("leaves untouched intervals alone", () => {
     const free = buildFreeSpace(windows(), [agendaBusy("12:00", "13:00")]);
-    const next = occupy(free, {
-      start: at(DAY, "13:00"),
-      end: at(DAY, "13:55"),
-      edgeBefore,
-      edgeAfter,
-    });
+    const next = occupy(free, placement("13:00", "13:55"));
     expect(next.map(fmt)).toEqual(["09:00–12:00", "13:55–17:00"]);
   });
 });

@@ -574,3 +574,204 @@ open. Minimising to the pill keeps the lock; pausing drops it. When the API is
 unavailable (iOS before 16.4) the screen says so rather than pretending.
 
 ---
+
+## M7 — Time blocking
+
+### D-057 · The time-block rules were already built and tested in M3 — *note*
+
+§5.4's semantics (recurrence expansion, per-instance skip, OR-within /
+AND-across filter matching, hard enforcement in the scheduler) live in
+`lib/scheduling/timeblocks.ts` and were unit-tested as part of the pure module.
+M7 adds only what is genuinely UI: CRUD, the editor, and the timeline band.
+
+### D-058 · Tapping a band's name skips that one occurrence — **Filled a gap**
+
+§4.7 defines `time_block_exceptions` and §7.5 lists "Lewati hari ini", but
+neither says where the control lives. Putting it on the band itself keeps the
+action next to the thing it affects, and it is undoable through the same toast
+as everything else. Toggling reuses the existing exception row rather than
+piling up tombstones, so `[time_block_id+date]` stays a genuine key.
+
+### D-059 · Creating a *time block* from the calendar long-press is deferred to Settings — **Interpreted**
+
+§8 says the long-press creates "an agenda or time block". The agenda path is
+immediate and needs one decision (which todo); the time-block path needs a
+name, a recurrence, days, and three filter dimensions — an editor, not a sheet.
+That editor exists in Settings → Blok waktu, so the gesture creates an agenda
+and time blocks are made where their full form already lives.
+
+### D-060 · Deleting a category leaves todos pointing at it — **Filled a gap**
+
+§4.1 says all four seeded categories are deletable but not what happens to
+todos using them. The grouping layer already treats an unknown `category_id` as
+"Tanpa kategori", so the dangling reference is harmless and the delete stays
+reversible — rewriting every affected todo would be a large cascade for an
+action the user may undo.
+
+---
+
+## M8 — Weekly Plan & smart allocation
+
+### D-061 · `occupy` removes the placement's *footprint*, not just its core — **Bug found by the tests**
+
+Worth recording because it is exactly the class of error §5.2 exists to
+prevent, and the test suite is what caught it.
+
+`buildFreeSpace` subtracts an existing agenda together with its buffers, and
+`edgePaddingMin` relies on that: it charges a candidate only the *shortfall*
+over what the neighbour already reserved. The allocator's `occupy` originally
+removed only the placed agenda's core interval — so the surviving edge claimed
+a 10-minute buffer that had never been carved out, the shortfall computed to
+zero, and two consecutive sessions were placed **back to back with no gap at
+all** (10:55 then 10:55).
+
+`occupy` now takes the buffers explicitly and removes `start − before` to
+`end + after`, matching `buildFreeSpace` exactly. The regression is pinned by
+"leaves the required gap between its own back-to-back sessions" and by
+"removes the placement's buffers from the map too".
+
+### D-062 · Candidate ordering has a fifth tiebreaker beyond `created_at` — **Filled a gap**
+
+§5.5 Step 2 ends with "`created_at` ascending (tiebreaker — guarantees
+determinism)". Two rows created in the same millisecond still tie, and the
+result would then depend on the input array's order — which is a live query's
+order, i.e. not stable. The sort falls through to the row id, which is unique
+by construction. Tested both ways round.
+
+### D-063 · Placements are returned chronologically — **Filled a gap**
+
+The greedy pass produces them in candidate order, which is not the order they
+appear on the calendar. Sorting the output by start time makes the draft
+preview readable and makes two runs comparable regardless of how the candidates
+were considered.
+
+### D-064 · The capacity meter is computed from the free-space map — **Interpreted**
+
+§7.3 says capacity is "derived from availability windows minus prayer blocks
+and existing commitments". Rather than recompute that, the meter divides
+`freeMinutes(world.free)` by the length of one pomodoro — the *same* map the
+allocator will use. This makes it impossible for the meter to promise capacity
+the allocator cannot deliver.
+
+The meter shows two bars: allocated (solid) inside wanted (translucent), so
+"terpakai 32 / kapasitas 48" and an over-capacity target are both visible.
+
+### D-065 · Drafts are written to Dexie, not held in memory — **Interpreted**
+
+§5.5 Step 5 allows the user to "drag, resize, or delete individual drafts"
+before applying. Drag and resize are calendar operations on real agenda rows,
+so drafts are real rows with `status = 'draft'`. They are excluded from the
+free-space map (§5.5 Step 1 subtracts *non-draft* agendas) and never written to
+Google (§6.2), so the only thing that changes on **Terapkan** is the status.
+
+This is also what lets the draft bar be a live query: any draft, from any
+source, surfaces the Terapkan/Batalkan bar.
+
+---
+
+## M9 — Missed agenda review
+
+### D-066 · Detection rides the shared clock — **Interpreted**
+
+§5.8 says to detect missed agendas "on app foreground". `useNow()` already
+ticks and is already re-read on foreground, so `useMissedAgendas()` derives
+from it rather than installing a second visibility listener. One clock, one
+answer, no drift between the banner and the calendar.
+
+### D-067 · The review writes pomodoro logs for what actually happened — **Filled a gap**
+
+§5.8's **Selesai** and **Sebagian** ask how many pomodoros were really used,
+but the brief does not say where that number goes. Storing it only as the
+agenda's status would leave the counters in §4.2 wrong — the todo would show
+allocated-but-unused forever.
+
+The review therefore back-fills `pomodoro_logs` up to the reported count, from
+the agenda's own start/end. Sessions past the allocation are marked
+`is_overtime`, exactly as a live session would be. Existing logs are counted
+first so re-reviewing does not double-count.
+
+### D-068 · Bulk selection applies to the tapped row's action — **Interpreted**
+
+§5.8: "Support bulk selection: select several, apply one action to all." The
+sheet has no separate apply bar; instead, if the row you act on is part of the
+selection, the action applies to the whole selection. Acting on an unselected
+row affects only that row. This keeps one set of controls rather than two modes.
+
+### D-069 · Reschedule excludes the agenda being moved from its own free-space map — **Filled a gap**
+
+Otherwise the agenda blocks the slot it currently occupies, and "the 3 nearest
+valid slots" would silently exclude the most obvious one — moving it 20 minutes
+later. `useSchedulingWorld` grew an `excludeAgendaIds` option for this.
+
+---
+
+## M10 — Reward layer & polish
+
+### D-070 · §5.9's prompt condition is a pure function — **Interpreted**
+
+"when an agenda is completed and that todo has no remaining allocation and no
+future agendas" needs three clarifications the brief leaves implicit, so the
+rule lives in `lib/agendas/coupling.ts` where it can be tested:
+
+1. A **missed** agenda awaiting review is not "no future agendas" — the work is
+   unresolved, not finished. It suppresses the prompt.
+2. "No remaining allocation" means every allocated pomodoro has a completed
+   focus log, not merely that the agenda is marked done.
+3. The todo's own `estimated_pomodoro` must also be covered — otherwise a todo
+   estimated at 6 with only 2 scheduled would be declared finished after those
+   2.
+
+### D-071 · Derived UI state is computed in render, never pushed from an effect — **Filled a gap**
+
+Both §5.9's prompt and §9's "Hari Selesai" trigger read live Dexie data. Written
+the obvious way — an effect that inspects the data and calls `setState` — they
+produce a cascading render on every database change, which React's lint rules
+flag and which would fire on every sync tick.
+
+They are computed with `useMemo` during render instead. The only state is what
+the user has already answered or dismissed. The one genuine effect left is
+firing the confetti, which is a real external side effect.
+
+### D-072 · The streak does not break on a day that is not over — **Interpreted**
+
+§9 defines it as "consecutive days with ≥1 completed pomodoro". Counting
+strictly back from today would show 0 every morning until the first pomodoro,
+which reads as a lost streak — precisely the guilt §9 rules out. The walk
+therefore starts at yesterday unless today already qualifies. Tested.
+
+### D-073 · The encouragement line is chosen deterministically from the date — **Filled a gap**
+
+§9 asks for "one honest line of encouragement". A random pick reshuffles every
+time the sheet re-renders, which reads as noise; the line is hashed from the
+date so it is stable for the day.
+
+### D-074 · Confetti fires exactly where §9 says and nowhere else — **Interpreted**
+
+Two triggers only: completing a todo that has subtasks, and clearing every
+agenda for the day. Both are gated on `prefers-reduced-motion`, and
+`canvas-confetti` is imported lazily so it never enters the initial bundle.
+Routine completions get the animated check, the strikethrough and a haptic tap
+— nothing more. Scarcity is the mechanism.
+
+---
+
+## Verification
+
+The build was checked end to end in a real browser (390×844, Asia/Jakarta) at
+each milestone, not only through the test suite:
+
+- **Prayer times** — computed times for the seeded Bandung coordinates on
+  2026-08-26 are 04:37 / 11:53 / 15:13 / 17:52 / 19:02, matching the published
+  Kemenag schedule.
+- **Slot suggestions route around them** — for a todo scheduled that morning,
+  the three chips came back as 11:00, then 12:15 (after the Dhuhr block ends at
+  12:13, snapped to the 5-minute grid), then 15:35 (after Ashar's block ends at
+  15:33).
+- **Smart allocation** — three todos totalling 8 pomodoros were placed as
+  drafts around the prayer blocks and the current time, rendered with dashed
+  borders and the §5.7 dot rows, with the Terapkan/Batalkan bar pinned below.
+- **Offline** — 36 URLs precached, covering the shell, all four tabs and the
+  icon set.
+
+Final state: `npm run lint`, `npm run typecheck` and `npm run build` are clean;
+the Vitest suite is green.

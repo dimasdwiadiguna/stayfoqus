@@ -38,6 +38,7 @@ export interface TimelineDayProps {
   onMoveAgenda: (agenda: Agenda, startMs: number) => void;
   onResizeAgenda: (agenda: Agenda, endMs: number) => void;
   onCreateAt: (startMs: number) => void;
+  onToggleBlockSkip: (block: TimeBlockInstance) => void;
 }
 
 /**
@@ -64,6 +65,7 @@ export function TimelineDay({
   onMoveAgenda,
   onResizeAgenda,
   onCreateAt,
+  onToggleBlockSkip,
 }: TimelineDayProps) {
   const dayStart = startOfLocalDay(date, timezone).getTime();
   const dayEnd = dayStart + 24 * 60 * 60 * 1000;
@@ -160,12 +162,20 @@ export function TimelineDay({
               borderColor: `${block.color}33`,
             }}
           >
-            <span
-              className="absolute left-1.5 top-0.5 text-[10px] font-medium tracking-wide uppercase"
+            {/* §4.7: skip this single occurrence. */}
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onToggleBlockSkip(block);
+              }}
+              onPointerDown={(e) => e.stopPropagation()}
+              title={t.settings.timeBlockSkipInstance}
+              className="absolute left-1.5 top-0.5 max-w-[80%] truncate text-left text-[10px] font-medium tracking-wide uppercase"
               style={{ color: block.color }}
             >
               {block.name}
-            </span>
+            </button>
           </div>
         );
       })}
