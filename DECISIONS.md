@@ -432,3 +432,145 @@ asking for confirmation would be theatre. The confirmations fire on drag, on
 resize, and on the sheet's "Pilih waktu lain…" path.
 
 ---
+
+## M5 — Google Calendar sync
+
+### D-041 · One `/api/gcal/pull` endpoint for both reads — **Interpreted**
+
+§6.3 describes two reads: incremental sync of the FOQUS calendar, and
+`freebusy` across the others. They share the same triggers and the same
+credentials, so splitting them into two endpoints would double the round trips
+and the token refreshes for no benefit. One POST returns both, plus the
+`syncToken` the client stores.
+
+### D-042 · The client owns the `syncToken` — **Filled a gap**
+
+§6.3 requires a stored token but not where. It lives in
+`settings.gcal_sync_token`, i.e. in the same local row every screen already
+reads, which keeps the server handlers stateless: the client sends the token it
+holds and stores whatever comes back. On a 410 the handler transparently falls
+back to the −7/+30 window resync and returns `resynced: true`.
+
+### D-043 · Google writes go through the outbox as `entity: "gcal"` — **Interpreted**
+
+§6.2 says calendar writes are queued in the same outbox. The queued payload is
+an *operation* (`upsert_event` / `delete_event`), not an event body: the body is
+rebuilt from the live agenda at drain time, so a queued write that sat offline
+through three edits sends the final state, not the first.
+
+A `delete_event` entry carries the Google event id inline, because by the time
+it drains the local agenda may be gone.
+
+### D-044 · Writing back a Google id does not re-enqueue — **Filled a gap**
+
+After a successful write, `gcal_event_id` and `gcal_synced_at` are written
+straight to Dexie rather than through `updateRow`. Going through the mutation
+layer would append another outbox entry, which would drain, write the id again,
+and never terminate. The same reasoning applies to clearing an expired conflict
+badge — both are local bookkeeping the server does not need to hear about.
+
+### D-045 · The FOQUS calendar is resolved server-side on every call — **Interpreted**
+
+§6.1 says to find or create it and store the id in
+`settings.gcal_calendar_id`. The client does store it, but the route handlers
+re-resolve it rather than trusting a client-supplied id: a browser must not be
+able to name which calendar the server writes to, and §6.1's "Never write to
+the primary calendar" is only enforceable if the server decides. The lookup
+filters out `primary` explicitly, so a user whose primary calendar happens to be
+named "FOQUS" still gets a separate one.
+
+### D-046 · `freebusy` excludes the FOQUS calendar — **Filled a gap**
+
+§4.10 calls `gcal_busy_cache` a mirror of the user's *other* calendars. Including
+FOQUS would double-count the agendas the scheduler already knows about locally
+and make every planned day look full.
+
+### D-047 · The busy cache is replaced, not merged — **Interpreted**
+
+§4.10: "Refresh on foreground for a rolling window of −7 to +30 days." A merge
+would leave a deleted remote event blocking the scheduler forever, so each
+refresh clears the table and rewrites it. It is a cache, not a record.
+
+### D-048 · A Google-side deletion soft-deletes the local agenda — **Filled a gap**
+
+§6.3 covers time changes but not a cancelled event. Since §6.2 already makes
+deleting an agenda delete its Google event, the reverse is the consistent
+reading: the event is gone, so the agenda goes with it. Written straight to
+Dexie, since echoing the delete back to Google would be a pointless round trip.
+
+### D-049 · Only events carrying `foqusAgendaId` are applied — **Interpreted**
+
+§6.2 sets the marker "for reliable round-trip matching". An event a user created
+by hand inside the FOQUS calendar has no local todo to attach to; inventing one
+would be worse than ignoring it, so unmarked events are skipped.
+
+---
+
+## M6 — Pomodoro
+
+### D-050 · The timer is a pure state machine with an effect list — **Interpreted**
+
+§13 requires a test for "timer recovery after a simulated background/foreground
+cycle". That is only testable if the timer has no ambient dependencies, so
+`lib/pomodoro/machine.ts` is pure — `advance(state, now, config)` returns the
+next state plus a list of effects (open a log, close a log, chime), and the
+store applies them. 20 unit tests cover pause/resume accounting, the long-break
+cadence, abort/skip semantics, and multi-phase recovery.
+
+### D-051 · A phase ends at its target time, not at wake-up — **Interpreted**
+
+§5.6: "On returning to the app after the target end time has passed,
+immediately resolve the session as completed." The subtlety is *what time to
+record*. If the app was away for an hour, the focus log must close at
+`startedAt + 25min`, not an hour later — otherwise the history would claim a
+90-minute pomodoro. `advance` therefore computes each phase's true end and can
+resolve several phases in one call (a focus session *and* its break both
+elapsed), each closed at its own instant. Tested.
+
+### D-052 · Skipping a focus session aborts it — **Interpreted**
+
+§7.4 lists a "Lewati" control; §5.6 says a focus session counts only if the full
+duration elapses. Those combine to one answer: skipping a *break* completes it
+normally, skipping a *focus* session logs `outcome='aborted'` and counts for
+nothing. Anything else would let the counter be gamed by tapping Lewati.
+
+### D-053 · Timer state persists to `localStorage`, not IndexedDB — **Filled a gap**
+
+§5.6 requires the running session to survive a refresh or crash. The
+`pomodoro_logs` rows are already in Dexie (and sync); what needs persisting is
+the small ephemeral machine state. `localStorage` is synchronous, so a cold
+start restores and resolves before the first paint — an async IndexedDB read
+would flash an idle Focus screen first. Every access is wrapped in try/catch, so
+a browser with storage disabled still runs the timer, it just cannot resume it.
+
+### D-054 · Synthesised audio: triangle tick, two-partial bell — **Filled a gap**
+
+§5.6 fixes the constraints ("a brief oscillator burst through a fast-decay gain
+envelope — keep it soft, not sharp"; "a warm two-tone chime") but not the
+synthesis.
+
+Tick: a triangle wave sliding 1050 → 620 Hz over 30 ms with a 4 ms attack and a
+50 ms exponential decay. Triangle rather than square because a square's odd
+harmonics are exactly the sharpness the brief rules out.
+
+Bell: two sine partials a perfect fifth apart (D5 + A5), the upper one delayed
+140 ms and quieter, each decaying exponentially over ~1.6–1.9 s — the envelope of
+a struck bar. A break ends on a lower pair (A4) so the two events are
+distinguishable without looking.
+
+### D-055 · Audio unlock lives in the start action, not a component — **Interpreted**
+
+§5.6: "Create and resume the `AudioContext` inside the tap handler on 'Mulai
+fokus' — never on page load." `startFocusSession()` calls `unlockAudio()` as its
+first statement, which makes the rule structural: every caller is a tap handler
+by construction, and no future call site can forget.
+
+### D-056 · The wake lock follows the phase, not the screen — **Interpreted**
+
+§5.6 asks for a Screen Wake Lock "while a focus session runs; release it on
+pause/finish". The lock is therefore driven by the machine state — held only
+while a *focus* phase is running and unpaused — not by the Focus overlay being
+open. Minimising to the pill keeps the lock; pausing drops it. When the API is
+unavailable (iOS before 16.4) the screen says so rather than pretending.
+
+---

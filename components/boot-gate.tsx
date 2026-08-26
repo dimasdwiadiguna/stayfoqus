@@ -6,6 +6,7 @@ import { setAfterMutate, setCurrentUserId } from "@/lib/db/mutations";
 import { seedIfNeeded } from "@/lib/db/seed";
 import { id as t } from "@/lib/i18n/id";
 import { getSupabase } from "@/lib/supabase/client";
+import { startGcalEngine } from "@/lib/gcal/engine";
 import { requestSync, setConflictHandler, startSyncEngine } from "@/lib/sync/engine";
 import { toast } from "@/components/ui/toast";
 
@@ -22,6 +23,7 @@ export function BootGate({ children }: { children: React.ReactNode }) {
   React.useEffect(() => {
     let cancelled = false;
     let stopEngine: (() => void) | undefined;
+    let stopGcal: (() => void) | undefined;
 
     (async () => {
       const supabase = getSupabase();
@@ -36,6 +38,7 @@ export function BootGate({ children }: { children: React.ReactNode }) {
       setAfterMutate(requestSync);
       setConflictHandler((count) => toast.show(t.sync.conflictApplied(count)));
       stopEngine = startSyncEngine();
+      stopGcal = startGcalEngine();
       setReady(true);
     })().catch((err) => {
       console.error("[foqus] boot failed", err);
@@ -48,6 +51,7 @@ export function BootGate({ children }: { children: React.ReactNode }) {
       cancelled = true;
       setAfterMutate(null);
       stopEngine?.();
+      stopGcal?.();
     };
   }, []);
 

@@ -16,6 +16,11 @@ import { ConfirmDialog } from "@/components/ui/dialog";
 import { Segmented } from "@/components/ui/field";
 import { toast } from "@/components/ui/toast";
 import { useNow } from "@/hooks/use-now";
+import {
+  completedFocusFor,
+  startFocusSession,
+  usePomodoroStore,
+} from "@/lib/pomodoro/store";
 import { usePomodoroLogs, useTaskData } from "@/hooks/use-tasks";
 import { useSchedulingWorld } from "@/hooks/use-scheduling";
 import { useSettings } from "@/hooks/use-settings";
@@ -64,6 +69,7 @@ export function CalendarScreen() {
   const [pendingMove, setPendingMove] = React.useState<PendingMove>(null);
   const [createAt, setCreateAt] = React.useState<CreateAtRequest | null>(null);
   const nowMs = useNow();
+  const runningAgendaId = usePomodoroStore((s) => s.timer.agendaId);
 
   const scrollRef = React.useRef<HTMLDivElement>(null);
   const scrolledFor = React.useRef<string>("");
@@ -314,7 +320,7 @@ export function CalendarScreen() {
                   agendas={agendasForDay(date)}
                   todosById={todosById}
                   completedByAgenda={completedByAgenda}
-                  runningAgendaId={null}
+                  runningAgendaId={runningAgendaId}
                   nowMs={nowMs}
                   compact={view === "three"}
                   onOpenAgenda={(agenda) => setOpenAgendaId(agenda.id)}
@@ -343,6 +349,19 @@ export function CalendarScreen() {
         agendaId={openAgendaId}
         onClose={() => setOpenAgendaId(null)}
         onDelete={onDeleteAgenda}
+        onStartFocus={(agenda) => {
+          setOpenAgendaId(null);
+          // Must stay inside the tap handler: iOS unlocks audio only there.
+          void (async () => {
+            const completed = await completedFocusFor(agenda.id);
+            await startFocusSession({
+              agendaId: agenda.id,
+              todoId: agenda.todo_id,
+              alreadyCompleted: completed,
+              isOvertime: completed >= agenda.allocated_pomodoro,
+            });
+          })();
+        }}
       />
 
       <ConfirmDialog
