@@ -27,7 +27,7 @@ import {
 import { addWeeks, isoWeekDates, isoWeekOf, localDate } from "@/lib/time";
 import { countersFor } from "@/lib/todos/derived";
 import { setFocusWeek } from "@/lib/todos/repo";
-import { isBlocked } from "@/lib/todos/tree";
+import { depthOf, isBlocked } from "@/lib/todos/tree";
 import { cn } from "@/lib/utils";
 
 /**
@@ -41,7 +41,7 @@ export function WeekScreen() {
   const router = useRouter();
   const settings = useSettings();
   const now = useNow();
-  const { todos, index, counters } = useTaskData();
+  const { todos, index, counters, agendas } = useTaskData();
 
   const today = localDate(new Date(), settings.timezone);
   const [week, setWeek] = React.useState(() => isoWeekOf(today));
@@ -108,8 +108,21 @@ export function WeekScreen() {
           todo,
           countersFor(counters, todo.id).remainingToAllocate,
           isBlocked(index, todo),
+          depthOf(index, todo.id),
         ),
       );
+
+      // A parent must not start before its children — including children whose
+      // agendas already exist outside this run.
+      const existingEndByTodo = new Map<string, number>();
+      for (const agenda of agendas) {
+        if (agenda.status === "cancelled") continue;
+        const end = new Date(agenda.end_at).getTime();
+        existingEndByTodo.set(
+          agenda.todo_id,
+          Math.max(existingEndByTodo.get(agenda.todo_id) ?? -Infinity, end),
+        );
+      }
 
       if (schedulable.every((s) => s.remainingToAllocate === 0)) {
         toast.show(t.week.nothingToAllocate);
@@ -123,6 +136,7 @@ export function WeekScreen() {
         shape: world.shape,
         buffers: world.buffers,
         notBefore: now ?? undefined,
+        existingEndByTodo,
         newId,
       });
 

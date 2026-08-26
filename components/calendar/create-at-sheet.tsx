@@ -14,6 +14,7 @@ import { id as t } from "@/lib/i18n/id";
 import { haptic } from "@/lib/reward";
 import { sessionDurationMin } from "@/lib/scheduling";
 import { countersFor } from "@/lib/todos/derived";
+import { childrenBlockingStart, earliestStartFor } from "@/lib/todos/ordering";
 import { formatDateWithWeekday, localTime } from "@/lib/time";
 import { cn } from "@/lib/utils";
 
@@ -61,7 +62,7 @@ function CreateAtBody({
   onClose: () => void;
 }) {
   const settings = useSettings();
-  const { todos, index, counters } = useTaskData();
+  const { todos, index, counters, agendas } = useTaskData();
   const [query, setQuery] = React.useState("");
   const [pomodoros, setPomodoros] = React.useState(1);
 
@@ -86,6 +87,19 @@ function CreateAtBody({
   }, [todos, query, counters]);
 
   const commit = async (todo: Todo) => {
+    // A parent may not start before its children (see calendar-screen).
+    const childFloor = earliestStartFor(index, todo.id, agendas);
+    if (request.startMs < childFloor) {
+      const blockers = childrenBlockingStart(
+        index,
+        todo.id,
+        agendas,
+        request.startMs,
+      );
+      toast.error(t.agenda.parentBeforeChild(blockers.map((c) => c.title)));
+      return;
+    }
+
     const shape = {
       focusMin: settings.pomodoro_focus_min,
       shortBreakMin: settings.pomodoro_short_break_min,

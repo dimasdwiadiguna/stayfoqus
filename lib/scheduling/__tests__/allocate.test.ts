@@ -37,6 +37,8 @@ function todo(overrides: Partial<SchedulableTodo> = {}): SchedulableTodo {
     createdAt: "2026-08-01T00:00:00.000Z",
     remainingToAllocate: 1,
     blocked: false,
+    parentId: null,
+    depth: 1,
     ...overrides,
   };
 }
@@ -356,5 +358,84 @@ describe("fixture scenario — a realistic week", () => {
       .filter((p) => p.todoId === "urgent")
       .reduce((n, p) => n + p.pomodoros, 0);
     expect(urgentTotal).toBe(6);
+  });
+});
+
+describe("a parent may not be scheduled before its children", () => {
+  const parent = () =>
+    todo({ id: "parent", depth: 1, remainingToAllocate: 1, priority: 1 });
+  const child = (id: string, overrides: Partial<SchedulableTodo> = {}) =>
+    todo({
+      id,
+      parentId: "parent",
+      depth: 2,
+      remainingToAllocate: 1,
+      priority: 4,
+      ...overrides,
+    });
+
+  it("considers deeper todos first, whatever the §5.5 order would say", () => {
+    // The parent is P1 and would otherwise sort ahead of both children.
+    const order = sortCandidates([parent(), child("c1"), child("c2")]);
+    expect(order.map((x) => x.id)).toEqual(["c1", "c2", "parent"]);
+  });
+
+  it("keeps the §5.5 order within a depth level", () => {
+    const order = sortCandidates([
+      child("late", { dueDate: "2026-09-01" }),
+      child("soon", { dueDate: "2026-08-27" }),
+      parent(),
+    ]);
+    expect(order.map((x) => x.id)).toEqual(["soon", "late", "parent"]);
+  });
+
+  it("starts the parent only after its last child ends", () => {
+    const { placements } = run([parent(), child("c1"), child("c2")]);
+    const byId = new Map(placements.map((p) => [p.todoId, p]));
+
+    const parentStart = byId.get("parent")!.start;
+    const lastChildEnd = Math.max(byId.get("c1")!.end, byId.get("c2")!.end);
+    expect(parentStart).toBeGreaterThanOrEqual(lastChildEnd);
+  });
+
+  it("respects a grandchild through its parent", () => {
+    const grandchild = todo({
+      id: "g",
+      parentId: "c1",
+      depth: 3,
+      remainingToAllocate: 1,
+    });
+    const { placements } = run([parent(), child("c1"), grandchild]);
+    const byId = new Map(placements.map((p) => [p.todoId, p]));
+
+    expect(byId.get("c1")!.start).toBeGreaterThanOrEqual(byId.get("g")!.end);
+    expect(byId.get("parent")!.start).toBeGreaterThanOrEqual(byId.get("c1")!.end);
+  });
+
+  it("honours a child agenda that already exists outside this run", () => {
+    resetIds();
+    const existingEnd = at(WED, "14:00");
+    const { placements } = allocate({
+      todos: [parent(), child("c1", { remainingToAllocate: 0 })],
+      free: freeFor(WED, WED),
+      timeBlocks: [],
+      shape: SHAPE,
+      buffers: BUFFERS,
+      existingEndByTodo: new Map([["c1", existingEnd]]),
+      newId,
+    });
+    const parentPlacement = placements.find((p) => p.todoId === "parent")!;
+    expect(parentPlacement.start).toBeGreaterThanOrEqual(existingEnd);
+  });
+
+  it("reports the parent as unfit when no slot after its children exists", () => {
+    // The child consumes the tail of the day, leaving nothing after it.
+    const busy: BusyInterval[] = [
+      { source: "gcal_busy", start: at(WED, "09:00"), end: at(WED, "16:50") },
+    ];
+    const { unfit } = run([parent(), child("c1")], {
+      free: freeFor(WED, WED, busy),
+    });
+    expect(unfit.map((u) => u.todo.id)).toContain("parent");
   });
 });

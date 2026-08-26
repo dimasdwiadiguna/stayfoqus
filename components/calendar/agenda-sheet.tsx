@@ -4,6 +4,7 @@ import { useLiveQuery } from "dexie-react-hooks";
 import { Trash2 } from "lucide-react";
 import * as React from "react";
 
+import { DurationPicker } from "@/components/calendar/duration-picker";
 import { PomodoroDots } from "@/components/calendar/pomodoro-dots";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/dialog";
@@ -15,8 +16,7 @@ import { updateAgenda } from "@/lib/agendas/repo";
 import { getDb } from "@/lib/db/client";
 import type { Agenda, BufferType, UUID } from "@/lib/db/schema";
 import { id as t } from "@/lib/i18n/id";
-import { sessionDurationMin } from "@/lib/scheduling";
-import { formatDuration, instantAt, localDate, localTime } from "@/lib/time";
+import { instantAt, localDate, localTime } from "@/lib/time";
 import { countsAsUsed } from "@/lib/todos/derived";
 
 const BUFFER_TYPES: { value: BufferType; label: string }[] = [
@@ -78,12 +78,25 @@ function AgendaSheetContent({
     shortBreakMin: settings.pomodoro_short_break_min,
   };
 
-  const reschedule = (nextDate: string, nextTime: string, pomodoros: number) => {
+  const durationMin = Math.round(
+    (new Date(agenda.end_at).getTime() - new Date(agenda.start_at).getTime()) /
+      60_000,
+  );
+
+  /** Moves the agenda, keeping its current length. */
+  const moveTo = (nextDate: string, nextTime: string) => {
     const start = instantAt(nextDate, nextTime, settings.timezone).getTime();
-    const end = start + sessionDurationMin(pomodoros, shape) * 60_000;
     void updateAgenda(agenda.id, {
       start_at: new Date(start).toISOString(),
-      end_at: new Date(end).toISOString(),
+      end_at: new Date(start + durationMin * 60_000).toISOString(),
+    });
+  };
+
+  /** Sets the length from the duration presets, deriving the pomodoro count. */
+  const setDuration = (minutes: number, pomodoros: number) => {
+    const start = new Date(agenda.start_at).getTime();
+    void updateAgenda(agenda.id, {
+      end_at: new Date(start + minutes * 60_000).toISOString(),
       allocated_pomodoro: pomodoros,
     });
   };
@@ -149,9 +162,7 @@ function AgendaSheetContent({
             <Input
               type="date"
               value={date}
-              onChange={(e) =>
-                reschedule(e.target.value, time, agenda.allocated_pomodoro)
-              }
+              onChange={(e) => moveTo(e.target.value, time)}
             />
           </Field>
           <Field label="&nbsp;">
@@ -159,38 +170,17 @@ function AgendaSheetContent({
               type="time"
               step={300}
               value={time}
-              onChange={(e) =>
-                reschedule(date, e.target.value, agenda.allocated_pomodoro)
-              }
+              onChange={(e) => moveTo(date, e.target.value)}
             />
           </Field>
         </div>
 
-        <Field
-          label={t.agenda.fieldAllocated}
-          hint={formatDuration(sessionDurationMin(agenda.allocated_pomodoro, shape))}
-        >
-          <div className="flex items-center gap-2">
-            <Button
-              size="iconSm"
-              aria-label="-"
-              onClick={() =>
-                reschedule(date, time, Math.max(1, agenda.allocated_pomodoro - 1))
-              }
-            >
-              −
-            </Button>
-            <span className="w-10 text-center text-[15px] font-semibold tabular-nums">
-              {agenda.allocated_pomodoro}
-            </span>
-            <Button
-              size="iconSm"
-              aria-label="+"
-              onClick={() => reschedule(date, time, agenda.allocated_pomodoro + 1)}
-            >
-              +
-            </Button>
-          </div>
+        <Field label={t.agenda.fieldDuration}>
+          <DurationPicker
+            valueMin={durationMin}
+            onChange={setDuration}
+            shape={shape}
+          />
         </Field>
 
         <div className="grid grid-cols-2 gap-3">

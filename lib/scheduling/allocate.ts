@@ -35,6 +35,11 @@ export interface AllocationOptions {
   buffers: DefaultBuffers;
   /** Never place anything before this instant (usually "now"). */
   notBefore?: number;
+  /**
+   * Latest end of an *already scheduled* agenda per todo id. Seeds the
+   * parent-after-children rule with agendas that exist outside this run.
+   */
+  existingEndByTodo?: ReadonlyMap<UUID, number>;
   /** Generates the id for each draft agenda. */
   newId: () => UUID;
 }
@@ -61,12 +66,33 @@ export interface AllocationResult {
 }
 
 /**
+ * The earliest instant a parent todo may start: after everything scheduled
+ * beneath it, including agendas that already exist rather than only the ones
+ * this run placed.
+ *
+ * Exported because the manual scheduling paths enforce the same rule — the
+ * suggestion list and the drag confirmation both read it.
+ */
+export function earliestStartForParent(
+  todoId: UUID,
+  childEndsByParent: ReadonlyMap<UUID, number>,
+): number {
+  return childEndsByParent.get(todoId) ?? -Infinity;
+}
+
+/**
  * §5.5 Step 2 — the candidate order, strictly:
  *   1. dependencies satisfied (blocked todos are excluded entirely)
  *   2. earliest due_date first, nulls last
  *   3. highest priority first (P1 → P4)
  *   4. largest remaining_to_allocate first
  *   5. created_at ascending — the tiebreaker that guarantees determinism
+ *
+ * Ahead of all of it sits one structural rule: **a parent may not start before
+ * its children**. Deeper todos are therefore considered first, so that by the
+ * time a parent is placed, everything beneath it already has a home and the
+ * parent's earliest legal start is known. Within a depth level the §5.5 order
+ * is untouched.
  */
 export function sortCandidates(
   todos: readonly SchedulableTodo[],
@@ -75,6 +101,7 @@ export function sortCandidates(
     .filter((todo) => !todo.blocked && todo.remainingToAllocate > 0)
     .slice()
     .sort((a, b) => {
+      if (a.depth !== b.depth) return b.depth - a.depth;
       if (a.dueDate !== b.dueDate) {
         if (a.dueDate === null) return 1;
         if (b.dueDate === null) return -1;
@@ -161,9 +188,43 @@ export function allocate(options: AllocationOptions): AllocationResult {
   const placements: DraftPlacement[] = [];
   const unfit: UnfitTodo[] = [];
 
+  /**
+   * Latest end scheduled for each todo, seeded with agendas that already exist
+   * and updated as this run places more. `childEnds` rolls that up to parents.
+   */
+  const latestEnd = new Map<UUID, number>(options.existingEndByTodo ?? []);
+  const childEnds = new Map<UUID, number>();
+
+  const recordEnd = (todo: SchedulableTodo, end: number) => {
+    latestEnd.set(todo.id, Math.max(latestEnd.get(todo.id) ?? -Infinity, end));
+    if (todo.parentId) {
+      childEnds.set(
+        todo.parentId,
+        Math.max(childEnds.get(todo.parentId) ?? -Infinity, end),
+      );
+    }
+  };
+
+  // Seed the roll-up from pre-existing agendas.
+  for (const todo of todos) {
+    const existing = options.existingEndByTodo?.get(todo.id);
+    if (existing !== undefined && todo.parentId) {
+      childEnds.set(
+        todo.parentId,
+        Math.max(childEnds.get(todo.parentId) ?? -Infinity, existing),
+      );
+    }
+  }
+
   for (const todo of sortCandidates(todos)) {
     let remaining = todo.remainingToAllocate;
     const perDay = new Map<IsoDate, number>();
+
+    // A parent never starts before its children have finished.
+    const floor = Math.max(
+      notBefore,
+      earliestStartForParent(todo.id, childEnds),
+    );
 
     while (remaining > 0) {
       // §5.5 Step 3: session size = min(remaining, 4), minimum 1.
@@ -181,7 +242,7 @@ export function allocate(options: AllocationOptions): AllocationResult {
           timeBlocks,
           shape,
           buffers,
-          notBefore,
+          floor,
           perDay,
         );
         if (placed) {
@@ -204,6 +265,7 @@ export function allocate(options: AllocationOptions): AllocationResult {
 
       perDay.set(placed.interval.date, (perDay.get(placed.interval.date) ?? 0) + 1);
       remaining -= placedSize;
+      recordEnd(todo, placed.end);
 
       // §5.5 Step 3: "On placement … update the free-space map." The new draft
       // presents its own buffers to whatever is placed next to it.

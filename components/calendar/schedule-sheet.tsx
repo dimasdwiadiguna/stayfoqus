@@ -3,6 +3,7 @@
 import { CalendarClock } from "lucide-react";
 import * as React from "react";
 
+import { DurationPicker } from "@/components/calendar/duration-picker";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/dialog";
 import { Field, Input } from "@/components/ui/field";
@@ -31,6 +32,7 @@ import {
   localDate,
 } from "@/lib/time";
 import { countersFor } from "@/lib/todos/derived";
+import { childrenBlockingStart, earliestStartFor } from "@/lib/todos/ordering";
 
 /** How far ahead the suggestion engine looks for the three chips (§8). */
 const HORIZON_DAYS = 14;
@@ -82,8 +84,17 @@ function ScheduleBody({
   defaultPomodoros?: number;
 }) {
   const settings = useSettings();
-  const { counters } = useTaskData();
+  const { counters, index, agendas } = useTaskData();
   const now = useNow();
+
+  /**
+   * A parent may not start before its children. The suggestion list simply
+   * never offers an earlier slot, and the manual path refuses one.
+   */
+  const childFloor = React.useMemo(
+    () => earliestStartFor(index, todo.id, agendas),
+    [index, todo.id, agendas],
+  );
 
   const today = localDate(new Date(), settings.timezone);
   const world = useSchedulingWorld({ from: today, to: addDays(today, HORIZON_DAYS) });
@@ -91,6 +102,14 @@ function ScheduleBody({
   const remaining = countersFor(counters, todo.id).remainingToAllocate;
   const [pomodoros, setPomodoros] = React.useState(
     Math.max(1, Math.min(4, defaultPomodoros ?? remaining ?? 1)),
+  );
+  // The duration is the value the user edits; the pomodoro count is derived
+  // from it so the dot row and the derived counters stay consistent.
+  const [durationMin, setDurationMin] = React.useState(() =>
+    sessionDurationMin(Math.max(1, Math.min(4, defaultPomodoros ?? remaining ?? 1)), {
+      focusMin: 25,
+      shortBreakMin: 5,
+    }),
   );
   const [manualDate, setManualDate] = React.useState(today);
   const [manualTime, setManualTime] = React.useState("09:00");
@@ -111,9 +130,9 @@ function ScheduleBody({
         shape: world.shape,
         pomodoros,
         limit: 3,
-        notBefore: now ?? 0,
+        notBefore: Math.max(now ?? 0, childFloor),
       }),
-    [todo.category_id, todo.tags, todo.priority, world, pomodoros, now],
+    [todo.category_id, todo.tags, todo.priority, world, pomodoros, now, childFloor],
   );
 
   const commit = async (
@@ -149,8 +168,16 @@ function ScheduleBody({
    */
   const takeManual = () => {
     const start = instantAt(manualDate, manualTime, settings.timezone).getTime();
-    const end = start + sessionDurationMin(pomodoros, world.shape) * 60_000;
+    const end = start + durationMin * 60_000;
     const interval = { start, end };
+
+    // Hard rule, not a confirmation: a parent starting before its own subtasks
+    // is incoherent rather than merely unusual.
+    if (start < childFloor) {
+      const blockers = childrenBlockingStart(index, todo.id, agendas, start);
+      toast.error(t.agenda.parentBeforeChild(blockers.map((c) => c.title)));
+      return;
+    }
 
     const inside = isInsideWindow(interval, world.windows);
     if (!inside) {
@@ -177,35 +204,20 @@ function ScheduleBody({
     void commit(start, end, pomodoros, false);
   };
 
-  const duration = sessionDurationMin(pomodoros, world.shape);
-
   return (
     <div className="space-y-5 pb-2">
-      <Field label={t.agenda.fieldAllocated} hint={formatDuration(duration)}>
-        <div className="flex items-center gap-2">
-          <Button
-            size="iconSm"
-            aria-label="-"
-            onClick={() => setPomodoros((n) => Math.max(1, n - 1))}
-          >
-            −
-          </Button>
-          <span className="w-10 text-center text-[15px] font-semibold tabular-nums">
-            {pomodoros}
-          </span>
-          <Button
-            size="iconSm"
-            aria-label="+"
-            onClick={() => setPomodoros((n) => Math.min(8, n + 1))}
-          >
-            +
-          </Button>
-          {remaining > 0 ? (
-            <span className="ml-2 text-[12px] text-fg-subtle">
-              {t.tasks.remainingToAllocate(remaining)}
-            </span>
-          ) : null}
-        </div>
+      <Field
+        label={t.agenda.fieldDuration}
+        hint={remaining > 0 ? t.tasks.remainingToAllocate(remaining) : undefined}
+      >
+        <DurationPicker
+          valueMin={durationMin}
+          shape={world.shape}
+          onChange={(minutes, n) => {
+            setDurationMin(minutes);
+            setPomodoros(n);
+          }}
+        />
       </Field>
 
       <section className="space-y-2">

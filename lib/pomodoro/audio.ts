@@ -32,11 +32,46 @@ function ensureContext(): AudioContext | null {
   return context;
 }
 
-/** Call from inside the tap handler that starts a focus session. */
-export async function unlockAudio(): Promise<boolean> {
+/**
+ * Unlocks audio **synchronously**, inside the tap handler.
+ *
+ * This must not be awaited behind anything: browsers only honour `resume()` and
+ * the silent-buffer trick while the call stack still belongs to the user
+ * gesture. An earlier version awaited a Dexie read first, which put the unlock
+ * in a later microtask — the AudioContext stayed suspended and nothing played,
+ * on desktop as well as iOS.
+ *
+ * Call this first, before any `await`. `resume()` itself returns a promise,
+ * but *starting* it in the gesture is what counts.
+ */
+export function primeAudio(): void {
   const ctx = ensureContext();
-  if (!ctx) return false;
+  if (!ctx) return;
 
+  if (ctx.state === "suspended") {
+    void ctx.resume().catch(() => {});
+  }
+
+  if (!unlocked) {
+    // A one-sample silent buffer: enough to open the audio session on iOS.
+    try {
+      const buffer = ctx.createBuffer(1, 1, ctx.sampleRate);
+      const source = ctx.createBufferSource();
+      source.buffer = buffer;
+      source.connect(ctx.destination);
+      source.start(0);
+      unlocked = true;
+    } catch {
+      // Retried on the next gesture.
+    }
+  }
+}
+
+/** Awaitable form, for callers that genuinely are the gesture's first action. */
+export async function unlockAudio(): Promise<boolean> {
+  primeAudio();
+  const ctx = context;
+  if (!ctx) return false;
   if (ctx.state === "suspended") {
     try {
       await ctx.resume();
@@ -44,17 +79,7 @@ export async function unlockAudio(): Promise<boolean> {
       return false;
     }
   }
-
-  if (!unlocked) {
-    // A one-sample silent buffer: enough to open the audio session on iOS.
-    const buffer = ctx.createBuffer(1, 1, ctx.sampleRate);
-    const source = ctx.createBufferSource();
-    source.buffer = buffer;
-    source.connect(ctx.destination);
-    source.start(0);
-    unlocked = true;
-  }
-  return true;
+  return ctx.state === "running";
 }
 
 /** Resume after the tab was backgrounded, where browsers suspend the context. */
@@ -150,6 +175,7 @@ export async function previewSound(
   which: "tick" | "bell",
   volume: number,
 ): Promise<void> {
+  primeAudio();
   await unlockAudio();
   if (which === "tick") playTick(volume);
   else playBell(volume);

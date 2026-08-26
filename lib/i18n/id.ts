@@ -189,6 +189,13 @@ export const id = {
     pickAnotherTime: "Pilih waktu lain…",
     startFocus: "Mulai fokus",
     scheduled: "Agenda dibuat.",
+    fieldDuration: "Durasi",
+    durationCustom: "Custom",
+    durationEquivalent: (n: number, exact: string) =>
+      `≈ ${n} pomodoro (pas ${exact})`,
+    parentBeforeChild: (names: string[]) =>
+      `Subtask belum selesai dijadwalkan lebih dulu: ${names.join(", ")}. Induk tidak bisa dimulai sebelum subtask-nya.`,
+    parentBeforeChildShort: "Tidak bisa mulai sebelum subtask-nya.",
   },
 
   week: {
