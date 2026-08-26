@@ -38,17 +38,19 @@ export function Field({
 const controlClass =
   "w-full rounded-lg border border-border bg-surface-2 px-3 text-[15px] text-fg placeholder:text-fg-subtle focus:border-accent focus:outline-none";
 
+// React 19 passes `ref` as an ordinary prop, so ComponentProps is enough —
+// no forwardRef wrapper needed for the callers that focus these fields.
 export function Input({
   className,
   ...props
-}: React.InputHTMLAttributes<HTMLInputElement>) {
+}: React.ComponentProps<"input">) {
   return <input className={cn(controlClass, "h-11", className)} {...props} />;
 }
 
 export function Textarea({
   className,
   ...props
-}: React.TextareaHTMLAttributes<HTMLTextAreaElement>) {
+}: React.ComponentProps<"textarea">) {
   return (
     <textarea
       className={cn(controlClass, "min-h-[88px] resize-y py-2.5", className)}
@@ -217,13 +219,13 @@ export function Chip({
   active,
   className,
   ...props
-}: React.ButtonHTMLAttributes<HTMLButtonElement> & { active?: boolean }) {
+}: React.ComponentProps<"button"> & { active?: boolean }) {
   return (
     <button
       type="button"
       aria-pressed={active}
       className={cn(
-        "inline-flex min-h-8 items-center gap-1.5 rounded-full border px-3 text-[13px] font-medium transition-colors",
+        "inline-flex min-h-8 shrink-0 items-center gap-1.5 rounded-full border px-3 text-[13px] font-medium whitespace-nowrap transition-colors",
         active
           ? "border-accent bg-accent-soft text-accent"
           : "border-border bg-surface-2 text-fg-muted hover:text-fg",

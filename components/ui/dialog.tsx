@@ -60,6 +60,7 @@ export function ConfirmDialog({
   cancelLabel = id.common.cancel,
   tone = "default",
   onConfirm,
+  onCancel,
   extraActions,
 }: {
   open: boolean;
@@ -70,6 +71,12 @@ export function ConfirmDialog({
   cancelLabel?: string;
   tone?: ConfirmTone;
   onConfirm: () => void;
+  /**
+   * Runs when the user picks the *cancel* action explicitly. Some §5.9 prompts
+   * make both answers meaningful ("Hapus agenda?" / "Biarkan"), so cancel is not
+   * always a no-op. Dismissing with Escape or the overlay never fires it.
+   */
+  onCancel?: () => void;
   extraActions?: React.ReactNode;
 }) {
   return (
@@ -80,7 +87,10 @@ export function ConfirmDialog({
           <Button
             variant="secondary"
             block
-            onClick={() => onOpenChange(false)}
+            onClick={() => {
+              onCancel?.();
+              onOpenChange(false);
+            }}
           >
             {cancelLabel}
           </Button>
