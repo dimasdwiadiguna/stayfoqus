@@ -13,7 +13,7 @@ import {
   SortableContext,
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
-import { AnimatePresence, motion } from "motion/react";
+import { AnimatePresence } from "motion/react";
 import * as React from "react";
 
 import { EmptyState, Screen, ScreenTitle } from "@/components/shell/screen";

@@ -138,7 +138,7 @@ export const id = {
     title: "Kalender",
     viewDay: "Hari",
     view3Day: "3 Hari",
-    viewList: "Daftar Agenda",
+    viewList: "Daftar",
     emptyDay: "Tidak ada agenda hari ini.",
     agendaCount: (n: number) => `${n} agenda`,
     allocatedPomodoro: (n: number) => `${n} pomodoro`,

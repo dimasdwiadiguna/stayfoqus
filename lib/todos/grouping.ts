@@ -159,7 +159,11 @@ export function groupTodos(
   }
   return [...buckets.values()]
     .sort((a, b) => a.order - b.order)
-    .map(({ order: _order, ...group }) => group);
+    .map((bucket) => ({
+      key: bucket.key,
+      label: bucket.label,
+      todos: bucket.todos,
+    }));
 }
 
 /** Every tag in use, for the filter chip row. */

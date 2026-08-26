@@ -206,3 +206,229 @@ Enabling RLS with no policy at all is the strongest form of that: `anon` and
 wrong. Only the service-role key used by `/app/api/gcal/*` bypasses it.
 
 ---
+
+## M2 — Tasks
+
+### D-019 · shadcn/ui via hand-vendored Radix components (see D-004) — *carried forward*
+
+No new decision; recorded here because M2 is where the primitive set grew
+(sheet, dialog, select, switch, slider, segmented control, chip, toast).
+
+### D-020 · Swipe and long-press-drag coexist through motion's `dragDirectionLock` — **Filled a gap**
+
+§8 warns that "gesture conflicts with vertical scrolling are the most common
+failure mode in this kind of app" and fixes dnd-kit's activation constraint at
+~200 ms delay / ~5 px tolerance. It does not say how the horizontal swipe avoids
+the same conflict.
+
+Chosen mechanism, in three layers that agree with each other:
+
+1. `touch-action: pan-y` on the draggable surface — the browser keeps vertical
+   scrolling for itself.
+2. motion's `dragDirectionLock` — the axis is decided from the first few pixels;
+   a vertical gesture never becomes a swipe.
+3. Those same few pixels exceed dnd-kit's 5 px tolerance inside its 200 ms
+   delay, which cancels the reorder activation.
+
+So the three gestures are mutually exclusive by construction rather than by
+racing handlers.
+
+### D-021 · Swipe-left latches the menu open instead of firing on release — **Interpreted**
+
+§8 says swipe left "reveals a menu: Jadwalkan · Edit · Hapus". A revealed menu
+has to persist to be tappable, so the row snaps to the open position and closes
+on the next tap anywhere on it. The alternative — firing the nearest action on
+release — would make an irreversible delete a flick away.
+
+### D-022 · Undo is a real inverse, not a deferred commit — **Interpreted**
+
+§8: "All destructive gestures are undoable via a toast with **Urungkan** for 5
+seconds." Two implementations are possible: delay the write for 5 s, or write
+immediately and offer the inverse.
+
+Chosen: write immediately, undo by inverse. §3.1 requires the UI to update
+instantly from the live query, and a deferred write would either lie to the
+query or block it. Because deletes are soft (§3.2), the inverse is exact —
+`restoreRow` clears `deleted_at`. The toast API supports both shapes
+(`onExpire` exists) so a future deferred case has somewhere to live.
+
+### D-023 · Completing a parent with open subtasks does not touch the subtasks — **Interpreted**
+
+§4.2 specifies the soft warning ("3 subtask belum selesai. Tetap selesaikan?")
+and that it must never hard-block, but not what happens to the children on
+"Tetap selesaikan". They are left alone: the warning exists precisely because
+the user knows something the app does not, and silently completing work that
+was not done would corrupt the pomodoro history the app is built to keep honest.
+
+### D-024 · "Biarkan" on the §5.9 agenda prompt still completes the todo — **Interpreted**
+
+§5.9: "Completing a todo that still has future `planned` agendas asks: 'Hapus 2
+agenda yang belum jalan?' — default yes." The question is about the *agendas*,
+not about the completion, so both answers complete the todo and only the agenda
+cleanup differs. Escape / tapping outside dismisses without completing, since
+that is not an answer. `ConfirmDialog` grew an explicit `onCancel` to keep this
+distinction (an ambient dismiss must not be mistaken for a choice).
+
+### D-025 · Filtering keeps ancestors of a match — **Filled a gap**
+
+§7.1 has tag filter chips but does not say what happens to a matching subtask
+whose parent does not match. Hiding the parent would orphan the subtask and lose
+the context that makes it legible, so a todo survives the filter if it matches
+*or any descendant does*.
+
+### D-026 · Grouping applies to root todos only — **Interpreted**
+
+§7.1 has both a grouping toggle and nested, collapsible subtasks. Grouping
+subtasks independently would tear a tree apart across headings, so only roots
+are grouped; subtasks stay nested under their parent wherever it lands.
+
+### D-027 · Detail sheet writes through on change, with no Save button — **Filled a gap**
+
+§13 asks for optimistic UI everywhere. A draft-and-save sheet would add a state
+the user can lose by swiping the sheet away. Text fields commit on blur (so a
+half-typed title is never stored), toggles and pickers commit immediately.
+
+---
+
+## M3 — Scheduling core
+
+### D-028 · Buffers are reconciled between the free-space map and the placement check — **Interpreted**
+
+This is the one place where two rules in §5 have to be read together, so it is
+worth stating precisely.
+
+§5.5 Step 1 builds the free-space map by subtracting existing agendas *with
+their buffers*. §5.5 Step 3 then requires a placement to fit "the session plus
+required buffers". Applied naively, that charges a same-type buffer twice —
+exactly the overlap §5.2's `max` rule exists to collapse. A 10-minute switch
+buffer on the neighbour plus a 15-minute switch buffer on the candidate would
+reserve 25 minutes where §5.2 says the answer is 15.
+
+Resolution: each free interval records what sits on either side of it, and the
+candidate is charged only the shortfall:
+
+```
+padding = max(0, required_gap(neighbour_side, own_side) − neighbour_side.min)
+```
+
+Checked against all three worked examples in §5.2, end to end through the map:
+
+| neighbour's facing buffer | candidate's facing buffer | free space starts | placement starts | total gap |
+|---|---|---|---|---|
+| 10 switch  | 15 switch  | +10 | +15 | **15** ✓ |
+| 10 switch  | 15 commute | +10 | +25 | **25** ✓ |
+| 20 commute | 15 commute | +20 | +20 | **20** ✓ |
+
+### D-029 · Buffers apply only between agendas — **Interpreted**
+
+§5.2 defines `required_gap` "for a gap between agenda A (ending) and agenda B
+(starting)". Prayer blocks and Google busy intervals are therefore hard
+obstacles that charge no buffer, and a window edge charges none either — §5.2
+says explicitly that "a buffer may extend past the window end". Both are encoded
+in the free interval's edge type rather than left to each call site.
+
+### D-030 · Kemenag prayer parameters spelled out, with ihtiyati — **Filled a gap**
+
+`adhan` ships no Kemenag preset. §4.8 defaults the method to `"Kemenag"`, so it
+is expressed as the Indonesian Ministry of Religious Affairs parameters: **Fajr
+20°, Isha 18°**, plus the **2-minute ihtiyati** (safety margin) Kemenag applies
+to its published tables. Without the ihtiyati the computed times run a minute or
+two ahead of the schedule the user actually sees — for a scheduling app that
+means blocks that start slightly too late.
+
+Verified against published Bandung times for 2026-08-26 (the seeded
+coordinates): 04:37 / 11:53 / 15:13 / 17:52 / 19:02.
+
+### D-031 · `adhan` is fed a Date built from *local* calendar fields — **Deviated (mechanical)**
+
+`adhan` reads the civil date off `getFullYear`/`getMonth`/`getDate` — the
+*runtime's* local fields — and returns UTC instants. Passing an instant derived
+from the user's timezone would be re-read in the server's timezone and could
+land a day off. `civilDate()` therefore builds the Date through the local
+constructor at midday, which pins those three fields to the target date on any
+host. There is a regression test that runs with `TZ=UTC`.
+
+This is the one place in the codebase that deliberately touches local time; §13's
+"never construct dates from naive local strings" is about *storage*, and the
+output here is still an absolute instant.
+
+### D-032 · Slot suggestions snap to 5-minute boundaries — **Filled a gap**
+
+§8 fixes 5-minute snapping for the drag gesture but says nothing about
+suggestions. Suggesting 11:07 when dragging can only produce 11:05 would be
+incoherent, so suggestions snap up to the same grid. Alignment is computed on
+the epoch, which coincides with local 5-minute boundaries everywhere except
+Nepal (+05:45) and Chatham (+12:45); there, suggestions land on a five-minute
+grid offset by 15 minutes. Noted rather than fixed — the app's default timezone
+is Asia/Jakarta and the cost of a full local-grid computation is not worth it.
+
+### D-033 · Suggestions step past a non-matching time block instead of skipping the day — **Interpreted**
+
+§5.4 makes time blocks hard for the machine. The naive reading — "this interval
+is unusable" — would throw away the whole afternoon because a block covers the
+morning. The suggester instead advances the cursor to the end of the blocking
+instance and retries within the same free interval (bounded to 8 hops so a
+pathological block set cannot spin).
+
+---
+
+## M4 — Calendar
+
+### D-034 · Agenda move is long-press-gated; resize is not — **Filled a gap**
+
+§8 lists both drags but only fixes an activation constraint for the *task list*.
+A timeline that starts moving a block the instant a finger lands on it is
+unusable — the column is 2160 px tall and must stay scrollable.
+
+Move therefore waits the same 200 ms / 5 px the task list uses. Resize does not:
+the handle is a small, deliberate target at the block's edge, so an immediate
+response is correct there and matches every calendar app.
+
+### D-035 · Resize snaps to the pomodoro ladder, not to minutes — **Interpreted**
+
+§8 says resize snaps "to whole pomodoro durations". Implemented as snapping the
+*resulting duration* onto `sessionDurationMin(n)` — 25 / 55 / 85 / 115 … — so a
+block always represents a whole number of sessions rather than an arbitrary
+length that happens to be a multiple of 25.
+
+### D-036 · Overlapping blocks are laid out in columns — **Filled a gap**
+
+§7.2 gives a layer order but not what happens when two agendas overlap. They
+can: §5.1 lets the user place an agenda anywhere they confirm. Hiding one behind
+the other would make the overlap invisible, which is exactly the state the user
+needs to see, so overlapping blocks split the column width (greedy assignment by
+start time, clusters computed independently).
+
+### D-037 · Timeline density: 1.5 px per minute — **Filled a gap**
+
+Chosen so the smallest possible block (one pomodoro, 25 min) is ~38 px tall —
+enough for its title, its time range and the §5.7 dot row. A full day is
+2160 px, which scrolls comfortably on a 390×844 viewport.
+
+### D-038 · Long-press on empty space opens a todo picker — **Interpreted**
+
+§8: "long-press empty area → Create an agenda or time block starting there."
+The gesture has already answered *when*, so the sheet only asks *which todo*,
+defaulting the list to the todos with the most left to allocate. Blocked todos
+appear but dimmed — §5.1 permits manual scheduling of a blocked todo (with
+confirmation), unlike smart allocation which skips them entirely.
+
+Creating a *time block* from the same gesture is deferred to M7, where the time
+block editor exists.
+
+### D-039 · The calendar owns its scrolling — **Filled a gap**
+
+The shared `Screen` shell provides a scroll pane, but nesting the 2160 px
+timeline inside it produces two scrollers fighting over one gesture. `Screen`
+gained a `scroll` prop; the calendar sets it false for the day/3-day views and
+true for the list view.
+
+### D-040 · Suggested slots need no confirmation; manual placement does — **Interpreted**
+
+§5.1 and §5.4 attach confirmations to *manual* placement. A slot that came out
+of the free-space map is legal by construction — it is inside a window, clear of
+prayer blocks and busy time, and satisfies every time block it touches — so
+asking for confirmation would be theatre. The confirmations fire on drag, on
+resize, and on the sheet's "Pilih waktu lain…" path.
+
+---

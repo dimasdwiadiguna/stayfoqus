@@ -202,7 +202,7 @@ export function Segmented<T extends string>({
           aria-checked={value === opt.value}
           onClick={() => onChange(opt.value)}
           className={cn(
-            "min-h-9 rounded-md px-3 text-[13px] font-medium transition-colors",
+            "min-h-9 rounded-md px-3 text-[13px] font-medium whitespace-nowrap transition-colors",
             value === opt.value
               ? "bg-accent text-accent-fg"
               : "text-fg-muted hover:text-fg",

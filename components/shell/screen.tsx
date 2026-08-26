@@ -14,11 +14,17 @@ export function Screen({
   children,
   className,
   contentClassName,
+  scroll = true,
 }: {
   header?: React.ReactNode;
   children: React.ReactNode;
   className?: string;
   contentClassName?: string;
+  /**
+   * Set false when the screen manages its own scrolling — the calendar's
+   * timeline is one tall pane and must not sit inside a second scroller.
+   */
+  scroll?: boolean;
 }) {
   return (
     <div className={cn("flex min-h-0 flex-1 flex-col", className)}>
@@ -29,11 +35,14 @@ export function Screen({
       ) : null}
       <div
         className={cn(
-          "min-h-0 flex-1 overflow-y-auto overscroll-contain",
+          "min-h-0 flex-1",
+          scroll && "overflow-y-auto overscroll-contain",
           contentClassName,
         )}
       >
-        <div className="mx-auto max-w-md">{children}</div>
+        <div className={cn("mx-auto max-w-md", !scroll && "h-full")}>
+          {children}
+        </div>
       </div>
     </div>
   );

@@ -76,12 +76,14 @@ export function SwipeRow({
         className="absolute inset-y-0 right-0 z-0 flex"
         style={{ width: menuWidth }}
         aria-hidden={!open}
+        // `inert` takes the hidden actions out of the tab order, the
+        // accessibility tree and hit-testing while the row is closed.
+        inert={!open}
       >
         {actions.map((action) => (
           <button
             key={action.key}
             type="button"
-            tabIndex={open ? 0 : -1}
             onClick={() => {
               close();
               action.onSelect();

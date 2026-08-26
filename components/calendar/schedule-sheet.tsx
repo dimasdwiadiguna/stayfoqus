@@ -5,9 +5,10 @@ import * as React from "react";
 
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/dialog";
-import { Field, Input, Select } from "@/components/ui/field";
+import { Field, Input } from "@/components/ui/field";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { toast } from "@/components/ui/toast";
+import { useNow } from "@/hooks/use-now";
 import { useSchedulingWorld } from "@/hooks/use-scheduling";
 import { useSettings } from "@/hooks/use-settings";
 import { useTaskData } from "@/hooks/use-tasks";
@@ -82,6 +83,7 @@ function ScheduleBody({
 }) {
   const settings = useSettings();
   const { counters } = useTaskData();
+  const now = useNow();
 
   const today = localDate(new Date(), settings.timezone);
   const world = useSchedulingWorld({ from: today, to: addDays(today, HORIZON_DAYS) });
@@ -109,9 +111,9 @@ function ScheduleBody({
         shape: world.shape,
         pomodoros,
         limit: 3,
-        notBefore: Date.now(),
+        notBefore: now ?? 0,
       }),
-    [todo.category_id, todo.tags, todo.priority, world, pomodoros],
+    [todo.category_id, todo.tags, todo.priority, world, pomodoros, now],
   );
 
   const commit = async (
