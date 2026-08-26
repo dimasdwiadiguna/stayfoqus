@@ -118,7 +118,10 @@ async function applyEffects(effects: TimerEffect[]): Promise<void> {
           ended_at: null,
           duration_sec: 0,
           type: effect.kind,
-          outcome: "completed",
+          // A session in flight is `aborted` until it actually finishes.
+          // §5.6: "counts as used only if the full 25 minutes elapse" — and
+          // this is also the honest record if the app dies mid-session.
+          outcome: "aborted",
           is_overtime: effect.isOvertime,
         });
         break;

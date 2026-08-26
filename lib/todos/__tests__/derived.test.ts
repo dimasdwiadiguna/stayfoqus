@@ -107,3 +107,16 @@ describe("pomodoro dot symbols (§5.7)", () => {
     expect(agendaDots(2, 2, true)).toEqual(["filled", "filled", "overtime"]);
   });
 });
+
+describe("in-flight sessions (§5.6)", () => {
+  it("does not count a focus session that is still running", () => {
+    const todo = makeTodo({ id: "t", estimated_pomodoro: 2 });
+    const agenda = makeAgenda({ id: "a", todo_id: "t", allocated_pomodoro: 2 });
+    const logs = [
+      makeLog({ agenda_id: "a" }),
+      // Open row: written when the session starts, closed when it finishes.
+      makeLog({ agenda_id: "a", ended_at: null, outcome: "aborted", duration_sec: 0 }),
+    ];
+    expect(countersFor(computeCounters([todo], [agenda], logs, NOW), "t").used).toBe(1);
+  });
+});

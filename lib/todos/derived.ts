@@ -31,9 +31,20 @@ export const EMPTY_COUNTERS: TodoCounters = {
   agendaCount: 0,
 };
 
-/** Only completed focus sessions count as used (§4.4). */
+/**
+ * Only completed focus sessions count as used (§4.4, §5.6).
+ *
+ * `ended_at` is part of the test on purpose: a session still running has a row
+ * but no end, and counting it would let the progress ring and the streak claim
+ * a pomodoro the user has not finished.
+ */
 export function countsAsUsed(log: PomodoroLog): boolean {
-  return log.type === "focus" && log.outcome === "completed" && !log.deleted_at;
+  return (
+    log.type === "focus" &&
+    log.outcome === "completed" &&
+    log.ended_at !== null &&
+    !log.deleted_at
+  );
 }
 
 export function computeCounters(

@@ -775,3 +775,19 @@ each milestone, not only through the test suite:
 
 Final state: `npm run lint`, `npm run typecheck` and `npm run build` are clean;
 the Vitest suite is green.
+
+### D-075 · A running focus session is logged as `aborted` until it finishes — **Bug found in the browser**
+
+Caught by running the Focus screen rather than by a test. `open-log` originally
+wrote the row with `outcome: 'completed'` as a placeholder, so the moment a
+session started it counted toward the daily progress ring, the derived
+`used_pomodoro`, and the streak — directly contradicting §5.6's "counts as used
+only if the full 25 minutes elapse".
+
+The open row now carries `outcome: 'aborted'` and `close-log` sets the real
+outcome. This is also the correct record if the app dies mid-session: the
+session genuinely was not completed.
+
+`countsAsUsed` additionally requires `ended_at !== null`, so an open row cannot
+be counted even if some future path writes a different placeholder. Pinned by
+"does not count a focus session that is still running".
