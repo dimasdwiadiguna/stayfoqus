@@ -1,0 +1,171 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+/*
+ * FOQUS design tokens.
+ * Dark is the default (settings.theme defaults to 'dark'); `.light` on <html>
+ * flips the palette. `prefers-color-scheme` is only consulted for theme:'system',
+ * which the ThemeProvider resolves to an explicit class at runtime.
+ */
+:root,
+.dark {
+  --bg: #0b0d10;
+  --surface: #14171c;
+  --surface-2: #1c2027;
+  --surface-3: #252a33;
+  --border: #2a2f38;
+  --border-strong: #3a414d;
+  --fg: #e8eaed;
+  --fg-muted: #9aa2ae;
+  --fg-subtle: #6b7480;
+
+  --accent: #7c9cff;
+  --accent-fg: #0b0d10;
+  --accent-soft: #1e2740;
+
+  --p1: #f4574d;
+  --p2: #f59e42;
+  --p3: #4ea3f0;
+  --p4: #6b7480;
+
+  --success: #43c98a;
+  --warning: #f0b429;
+  --danger: #f4574d;
+  --overtime: #c084fc;
+  --prayer: #57c9b6;
+  --busy: #545b66;
+
+  --ring: #7c9cff;
+}
+
+.light {
+  --bg: #f7f8fa;
+  --surface: #ffffff;
+  --surface-2: #f1f3f6;
+  --surface-3: #e6e9ef;
+  --border: #dfe3ea;
+  --border-strong: #c3cad6;
+  --fg: #161a20;
+  --fg-muted: #5a636f;
+  --fg-subtle: #858d99;
+
+  --accent: #3b62e0;
+  --accent-fg: #ffffff;
+  --accent-soft: #e4e9fb;
+
+  --p1: #d93a30;
+  --p2: #cf7a12;
+  --p3: #2b7fd0;
+  --p4: #858d99;
+
+  --success: #1f9d63;
+  --warning: #b8860b;
+  --danger: #d93a30;
+  --overtime: #8b46d6;
+  --prayer: #1a8f80;
+  --busy: #a7aeb9;
+
+  --ring: #3b62e0;
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-surface-3: var(--surface-3);
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-fg: var(--fg);
+  --color-fg-muted: var(--fg-muted);
+  --color-fg-subtle: var(--fg-subtle);
+  --color-accent: var(--accent);
+  --color-accent-fg: var(--accent-fg);
+  --color-accent-soft: var(--accent-soft);
+  --color-p1: var(--p1);
+  --color-p2: var(--p2);
+  --color-p3: var(--p3);
+  --color-p4: var(--p4);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-danger: var(--danger);
+  --color-overtime: var(--overtime);
+  --color-prayer: var(--prayer);
+  --color-busy: var(--busy);
+  --color-ring: var(--ring);
+
+  --font-sans:
+    ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue",
+    Arial, sans-serif;
+  --font-mono:
+    ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+
+  --radius-card: 0.875rem;
+}
+
+@layer base {
+  * {
+    border-color: var(--border);
+  }
+
+  html {
+    height: 100%;
+    /* Prevent iOS text auto-inflation in the timeline columns. */
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    min-height: 100%;
+    background: var(--bg);
+    color: var(--fg);
+    font-family: var(--font-sans);
+    /* The app is a fixed shell; only inner panes scroll. */
+    overscroll-behavior-y: none;
+  }
+
+  /* Native controls follow the active palette (date pickers, scrollbars). */
+  :root,
+  .dark {
+    color-scheme: dark;
+  }
+  .light {
+    color-scheme: light;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
+
+  button,
+  [role="button"] {
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+  }
+}
+
+@utility safe-bottom {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+@utility safe-top {
+  padding-top: env(safe-area-inset-top, 0px);
+}
+
+@utility no-scrollbar {
+  scrollbar-width: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+/* §9: every animation must respect prefers-reduced-motion. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
