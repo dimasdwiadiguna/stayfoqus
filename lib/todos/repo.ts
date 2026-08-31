@@ -18,6 +18,8 @@ import type {
   UUID,
 } from "@/lib/db/schema";
 import { buildTodoIndex, canNest, descendantsOf, findDependencyCycle } from "@/lib/todos/tree";
+import { planCompletion, suggestedReported } from "@/lib/todos/completion";
+import { localDate } from "@/lib/time";
 
 export interface NewTodoInput {
   title: string;
@@ -157,6 +159,147 @@ export async function completeTodo(
 
 export async function uncompleteTodo(todoId: UUID): Promise<void> {
   await updateRow("todos", todoId, { status: "active", completed_at: null });
+}
+
+/** Everything the completion prompt needs to open with a sensible number. */
+export async function completionContext(todoId: UUID): Promise<{
+  suggested: number;
+  alreadyToday: number;
+} | null> {
+  const db = getDb();
+  const todo = await db.todos.get(todoId);
+  if (!todo) return null;
+
+  const agendas = (await db.agendas.where("todo_id").equals(todoId).toArray()).filter(
+    (a) => !a.deleted_at,
+  );
+  const logs = await logsForTodo(todoId, agendas.map((a) => a.id));
+
+  const settings = await db.settings.toArray();
+  const timezone = settings[0]?.timezone ?? "Asia/Jakarta";
+  const today = localDate(new Date(), timezone);
+
+  const plan = planCompletion({
+    todo,
+    agendas,
+    logs,
+    reported: 0,
+    today,
+    toLocalDate: (instant) => localDate(instant, timezone),
+    now: Date.now(),
+  });
+
+  return {
+    suggested: suggestedReported({ todo, agendas, logs }),
+    alreadyToday: plan.alreadyToday,
+  };
+}
+
+async function logsForTodo(todoId: UUID, agendaIds: UUID[]) {
+  const db = getDb();
+  const all = await db.pomodoro_logs.toArray();
+  const ids = new Set(agendaIds);
+  return all.filter(
+    (log) =>
+      !log.deleted_at &&
+      (log.todo_id === todoId || (log.agenda_id !== null && ids.has(log.agenda_id))),
+  );
+}
+
+/**
+ * Completes a todo and records how many pomodoros it actually took.
+ *
+ * The reported number has to move *both* of today's figures — completed and
+ * planned — so the plan may create or top up an agenda for today as well as
+ * writing the logs. See `lib/todos/completion.ts` for why.
+ */
+export async function completeTodoWithPomodoro(
+  todoId: UUID,
+  reported: number,
+  options: CompleteTodoOptions = {},
+): Promise<void> {
+  const db = getDb();
+  const todo = await db.todos.get(todoId);
+  if (!todo) return;
+
+  const settingsRow = (await db.settings.toArray())[0];
+  const timezone = settingsRow?.timezone ?? "Asia/Jakarta";
+  const focusMin = settingsRow?.pomodoro_focus_min ?? 25;
+  const shortBreakMin = settingsRow?.pomodoro_short_break_min ?? 5;
+
+  const agendas = (await db.agendas.where("todo_id").equals(todoId).toArray()).filter(
+    (a) => !a.deleted_at,
+  );
+  const logs = await logsForTodo(todoId, agendas.map((a) => a.id));
+  const now = Date.now();
+  const today = localDate(new Date(now), timezone);
+
+  const plan = planCompletion({
+    todo,
+    agendas,
+    logs,
+    reported,
+    today,
+    toLocalDate: (instant) => localDate(instant, timezone),
+    now,
+  });
+
+  let targetAgendaId: UUID | null = plan.topUpAgendaId;
+
+  if (plan.createAgenda) {
+    // Placed so it *ends* now: the work is finished, and an agenda running into
+    // the future would immediately look like something still to do.
+    const n = plan.createAgenda.allocated;
+    const durationMs = (n * focusMin + Math.max(0, n - 1) * shortBreakMin) * 60_000;
+    const created = await createRow("agendas", {
+      todo_id: todoId,
+      title_override: null,
+      start_at: new Date(now - durationMs).toISOString(),
+      end_at: new Date(now).toISOString(),
+      allocated_pomodoro: n,
+      buffer_before_min: 0,
+      buffer_before_type: "switch",
+      buffer_after_min: 0,
+      buffer_after_type: "switch",
+      status: "done",
+      outside_window: false,
+      gcal_event_id: null,
+      gcal_synced_at: null,
+      gcal_conflict: false,
+    });
+    targetAgendaId = created.id;
+  } else if (plan.topUpAgendaId) {
+    await updateRow("agendas", plan.topUpAgendaId, {
+      allocated_pomodoro: plan.topUpAllocatedTo,
+    });
+  } else {
+    targetAgendaId =
+      agendas
+        .filter(
+          (a) =>
+            a.status !== "cancelled" &&
+            a.status !== "draft" &&
+            localDate(a.start_at, timezone) === today,
+        )
+        .sort((a, b) => a.start_at.localeCompare(b.start_at))
+        .pop()?.id ?? null;
+  }
+
+  for (let i = 0; i < plan.logsToAdd; i += 1) {
+    const endedAt = now - i * focusMin * 60_000;
+    await createRow("pomodoro_logs", {
+      agenda_id: targetAgendaId,
+      todo_id: todoId,
+      started_at: new Date(endedAt - focusMin * 60_000).toISOString(),
+      ended_at: new Date(endedAt).toISOString(),
+      duration_sec: focusMin * 60,
+      type: "focus",
+      outcome: "completed",
+      is_overtime: false,
+    });
+  }
+
+  await completeTodo(todoId, options);
 }
 
 /** Future `planned` agendas for a todo — drives the §5.9 prompt. */

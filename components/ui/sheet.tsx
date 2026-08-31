@@ -45,7 +45,8 @@ export function SheetContent({
               aria-hidden
               className="mx-auto mb-3 h-1 w-10 rounded-full bg-border-strong"
             />
-            <Dialog.Title className="truncate text-base font-semibold">
+            {/* Two lines, not one: some titles are whole questions. */}
+            <Dialog.Title className="line-clamp-2 text-base font-semibold">
               {title}
             </Dialog.Title>
             {description ? (

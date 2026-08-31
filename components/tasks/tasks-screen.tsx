@@ -19,6 +19,10 @@ import * as React from "react";
 import { EmptyState, Screen, ScreenTitle } from "@/components/shell/screen";
 import { SyncIndicator } from "@/components/shell/sync-indicator";
 import {
+  CompletionPrompt,
+  type CompletionRequest,
+} from "@/components/tasks/completion-prompt";
+import {
   MissedBanner,
   MissedReviewSheet,
 } from "@/components/tasks/missed-review";
@@ -45,7 +49,8 @@ import {
   type TaskFilter,
 } from "@/lib/todos/grouping";
 import {
-  completeTodo,
+  completeTodoWithPomodoro,
+  completionContext,
   deleteTodo,
   futurePlannedAgendas,
   incompleteChildren,
@@ -78,6 +83,9 @@ export function TasksScreen({
   const [openTodoId, setOpenTodoId] = React.useState<UUID | null>(null);
   const [dialog, setDialog] = React.useState<PendingDialog>(null);
   const [reviewOpen, setReviewOpen] = React.useState(false);
+  const [completing, setCompleting] = React.useState<CompletionRequest | null>(
+    null,
+  );
 
   const today = localDate(new Date(), settings.timezone);
   const tags = React.useMemo(() => allTags(data.todos), [data.todos]);
@@ -109,12 +117,33 @@ export function TasksScreen({
 
   /* ---------------- completion (§4.2 soft warning, §5.9 coupling) -------- */
 
-  const runComplete = async (todo: Todo, removeFutureAgendas: boolean) => {
+  /**
+   * The last step of completing: record how many pomodoros it took, then mark
+   * the todo done. The reported number lands in today's completed *and*
+   * planned counts — see `lib/todos/completion.ts`.
+   */
+  const finishComplete = async (
+    todo: Todo,
+    reported: number,
+    removeFutureAgendas: boolean,
+  ) => {
     const hasSubtasks = childrenOf(data.index, todo.id).length > 0;
-    await completeTodo(todo.id, { removeFutureAgendas });
+    await completeTodoWithPomodoro(todo.id, reported, { removeFutureAgendas });
     haptic([10, 40, 14]);
     if (hasSubtasks) void celebrate("todo-with-subtasks");
+    setCompleting(null);
     toast.undoable(t.tasks.completed, () => void uncompleteTodo(todo.id));
+  };
+
+  /** Opens the pomodoro prompt, after any warning dialogs have been answered. */
+  const askPomodoro = async (todo: Todo, removeFutureAgendas: boolean) => {
+    const context = await completionContext(todo.id);
+    setCompleting({
+      todo,
+      suggested: context?.suggested ?? todo.estimated_pomodoro,
+      alreadyToday: context?.alreadyToday ?? 0,
+      removeFutureAgendas,
+    });
   };
 
   const requestComplete = async (todo: Todo) => {
@@ -135,7 +164,7 @@ export function TasksScreen({
       return;
     }
 
-    await runComplete(todo, false);
+    await askPomodoro(todo, false);
   };
 
   /* ---------------- deletion (§4.2) ------------------------------------- */
@@ -316,6 +345,19 @@ export function TasksScreen({
         </DndContext>
       )}
 
+      <CompletionPrompt
+        request={completing}
+        onCancel={() => setCompleting(null)}
+        onConfirm={(reported) => {
+          if (!completing) return;
+          void finishComplete(
+            completing.todo,
+            reported,
+            completing.removeFutureAgendas,
+          );
+        }}
+      />
+
       <MissedReviewSheet
         open={reviewOpen}
         onClose={() => setReviewOpen(false)}
@@ -339,8 +381,8 @@ export function TasksScreen({
       <TaskDialogs
         dialog={dialog}
         onDismiss={() => setDialog(null)}
-        onCompleteAnyway={(todo) => void runComplete(todo, false)}
-        onCompleteRemovingAgendas={(todo) => void runComplete(todo, true)}
+        onCompleteAnyway={(todo) => void askPomodoro(todo, false)}
+        onCompleteRemovingAgendas={(todo) => void askPomodoro(todo, true)}
         onDelete={(todo, mode) => void runDelete(todo, mode)}
       />
     </Screen>

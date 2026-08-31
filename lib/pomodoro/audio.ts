@@ -3,17 +3,34 @@
 /**
  * §5.6 — audio, synthesised with the Web Audio API. **No audio files.**
  *
- * iOS will not let an AudioContext produce sound unless it was created and
- * resumed inside a user gesture, so `unlockAudio()` must be called from the
- * tap handler on "Mulai fokus" — never on page load. It also plays a silent
- * buffer, which is what actually flips the audio session on older iOS.
+ * iOS Safari needs three things that no other browser does, and missing any
+ * one of them produces exactly the same symptom — total silence:
+ *
+ * 1. The AudioContext must be *created and resumed inside a user gesture*.
+ *    `primeAudio()` does that synchronously; see its comment.
+ * 2. By default Web Audio obeys the **hardware silent switch**. A phone with
+ *    the ringer switch flipped plays nothing at all, however correct the code
+ *    is. `navigator.audioSession.type = "playback"` opts out of that
+ *    (Safari 16.4+); it is the only way, and there is no feature test beyond
+ *    the property's existence.
+ * 3. The context is suspended when the page stops being visible, and a
+ *    `resume()` from a timer callback — not a gesture — is refused. A 25-minute
+ *    session almost always ends in that state, so the bell would never ring.
+ *    A silent keep-alive source holds the audio session open for the life of a
+ *    session (`beginAudioSession`).
  */
 
 let context: AudioContext | null = null;
 let master: GainNode | null = null;
 let unlocked = false;
+let keepAlive: AudioBufferSourceNode | null = null;
 
 type AudioContextCtor = typeof AudioContext;
+
+/** Safari 16.4+ only; absent everywhere else, which is why it is optional. */
+interface AudioSessionCapableNavigator extends Navigator {
+  audioSession?: { type: string };
+}
 
 function audioContextCtor(): AudioContextCtor | null {
   if (typeof window === "undefined") return null;
@@ -21,15 +38,69 @@ function audioContextCtor(): AudioContextCtor | null {
   return window.AudioContext ?? w.webkitAudioContext ?? null;
 }
 
+/**
+ * Tells iOS this page plays *content*, not UI feedback, so the ringer switch
+ * no longer silences it. Harmless and inert everywhere else.
+ */
+function claimPlaybackSession(): void {
+  if (typeof navigator === "undefined") return;
+  const session = (navigator as AudioSessionCapableNavigator).audioSession;
+  if (session && session.type !== "playback") {
+    try {
+      session.type = "playback";
+    } catch {
+      // Read-only in some versions; the rest of the chain still works.
+    }
+  }
+}
+
 function ensureContext(): AudioContext | null {
   if (context) return context;
   const Ctor = audioContextCtor();
   if (!Ctor) return null;
+  claimPlaybackSession();
   context = new Ctor();
   master = context.createGain();
   master.gain.value = 1;
   master.connect(context.destination);
   return context;
+}
+
+/**
+ * Starts a silent looping source that keeps the audio session alive.
+ *
+ * Without it iOS suspends the context the moment the screen locks or the app
+ * is backgrounded, and the end-of-session bell is dropped — the single most
+ * likely reason a pomodoro finishes in silence on a phone. The buffer is two
+ * seconds of zeroes, so it costs nothing audible and almost nothing in power.
+ */
+export function beginAudioSession(): void {
+  const ctx = ensureContext();
+  if (!ctx || keepAlive) return;
+
+  try {
+    const buffer = ctx.createBuffer(1, Math.max(1, ctx.sampleRate * 2), ctx.sampleRate);
+    const source = ctx.createBufferSource();
+    source.buffer = buffer;
+    source.loop = true;
+    source.connect(ctx.destination);
+    source.start(0);
+    keepAlive = source;
+  } catch {
+    // Not fatal: audio still works while the app is in the foreground.
+  }
+}
+
+/** Releases the keep-alive when no session is running. */
+export function endAudioSession(): void {
+  if (!keepAlive) return;
+  try {
+    keepAlive.stop();
+    keepAlive.disconnect();
+  } catch {
+    /* already stopped */
+  }
+  keepAlive = null;
 }
 
 /**
@@ -47,6 +118,8 @@ function ensureContext(): AudioContext | null {
 export function primeAudio(): void {
   const ctx = ensureContext();
   if (!ctx) return;
+
+  claimPlaybackSession();
 
   if (ctx.state === "suspended") {
     void ctx.resume().catch(() => {});
@@ -98,10 +171,19 @@ export function isAudioUnlocked(): boolean {
 }
 
 export function closeAudio(): void {
+  endAudioSession();
   context?.close().catch(() => {});
   context = null;
   master = null;
   unlocked = false;
+}
+
+/** Diagnostic for Settings, so a silent phone is explainable rather than magic. */
+export function audioState(): "unsupported" | "locked" | "suspended" | "running" {
+  if (!audioContextCtor()) return "unsupported";
+  if (!context) return "locked";
+  if (context.state === "running") return "running";
+  return "suspended";
 }
 
 /**
@@ -170,13 +252,105 @@ export function playBell(volume: number, kind: "focus" | "break" = "focus"): voi
   }
 }
 
+/* ------------------------------------------------------------------ */
+/* pre-scheduled bell                                                   */
+/* ------------------------------------------------------------------ */
+
+let scheduled: OscillatorNode[] = [];
+
+/**
+ * Books the end-of-phase chime on the *audio* clock, at session start.
+ *
+ * The bell used to be played from the tick that noticed the phase had ended.
+ * That works on a desktop tab in the foreground and nowhere else: iOS throttles
+ * or stops timers in a backgrounded page, so the one moment the user most needs
+ * the sound — they put the phone down and went to work — is exactly the moment
+ * JS is not running.
+ *
+ * Web Audio's scheduler is not JS. Once a node is booked with a start time it
+ * fires on the audio thread whether or not the main thread is alive, provided
+ * the context is still running — which is what `beginAudioSession` guarantees.
+ *
+ * Anything that changes when the phase ends (pause, skip, abort, resume) must
+ * call `cancelScheduledBell` and book again.
+ */
+export function scheduleBell(
+  delaySec: number,
+  volume: number,
+  kind: "focus" | "break" = "focus",
+): void {
+  cancelScheduledBell();
+
+  const ctx = context;
+  if (!ctx || !master || volume <= 0) return;
+  if (delaySec <= 0) return;
+  // Web Audio keeps every booked node in memory until it fires. An hour is far
+  // beyond any sane phase and keeps that bounded.
+  if (delaySec > 3 * 3600) return;
+
+  const at = ctx.currentTime + delaySec;
+  const root = kind === "focus" ? 587.33 : 440;
+  const partials = [
+    { freq: root, delay: 0, gain: 0.5, decay: 1.6 },
+    { freq: root * 1.5, delay: 0.14, gain: 0.32, decay: 1.9 },
+  ];
+
+  for (const partial of partials) {
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    const start = at + partial.delay;
+
+    osc.type = "sine";
+    osc.frequency.setValueAtTime(partial.freq, start);
+
+    const peak = Math.max(0.0002, Math.min(0.5, partial.gain * volume));
+    gain.gain.setValueAtTime(0.0001, start);
+    gain.gain.exponentialRampToValueAtTime(peak, start + 0.02);
+    gain.gain.exponentialRampToValueAtTime(0.0001, start + partial.decay);
+
+    osc.connect(gain).connect(master);
+    osc.start(start);
+    osc.stop(start + partial.decay + 0.05);
+    osc.addEventListener("ended", () => {
+      scheduled = scheduled.filter((node) => node !== osc);
+    });
+    scheduled.push(osc);
+  }
+}
+
+export function cancelScheduledBell(): void {
+  for (const osc of scheduled) {
+    try {
+      osc.stop();
+      osc.disconnect();
+    } catch {
+      /* already fired or stopped */
+    }
+  }
+  scheduled = [];
+}
+
+export function hasScheduledBell(): boolean {
+  return scheduled.length > 0;
+}
+
 /** Settings → "Coba suara". Unlocks first, since it is itself a user gesture. */
 export async function previewSound(
   which: "tick" | "bell",
   volume: number,
 ): Promise<void> {
   primeAudio();
-  await unlockAudio();
+  // Try immediately — on a context that is already running this plays inside
+  // the gesture, which is the most reliable moment there is.
   if (which === "tick") playTick(volume);
   else playBell(volume);
+
+  // Then again once a cold context has finished resuming, since the first
+  // attempt above would have been dropped.
+  const wasRunning = context?.state === "running";
+  await unlockAudio();
+  if (!wasRunning) {
+    if (which === "tick") playTick(volume);
+    else playBell(volume);
+  }
 }

@@ -2,6 +2,7 @@
 
 import { useLiveQuery } from "dexie-react-hooks";
 import * as React from "react";
+import { useSyncExternalStore } from "react";
 
 import { AccountSection } from "@/components/settings/account-section";
 import { AvailabilityEditor } from "@/components/settings/availability-editor";
@@ -22,7 +23,7 @@ import type {
   ThemePreference,
 } from "@/lib/db/schema";
 import { id as t } from "@/lib/i18n/id";
-import { previewSound } from "@/lib/pomodoro/audio";
+import { audioState, previewSound } from "@/lib/pomodoro/audio";
 import { prayerTimesFor } from "@/lib/scheduling";
 import {
   dropOutboxEntry,
@@ -31,6 +32,7 @@ import {
 } from "@/lib/sync/engine";
 import { useSyncStatus } from "@/lib/sync/status";
 import { localDate, localTime } from "@/lib/time";
+import { cn } from "@/lib/utils";
 
 const PRAYERS: PrayerKey[] = ["fajr", "dhuhr", "asr", "maghrib", "isha"];
 
@@ -342,6 +344,8 @@ function PomodoroSection() {
         }
       />
 
+      <AudioStatusRow />
+
       <AudioRow
         label={t.settings.ticking}
         volumeLabel={t.settings.tickingVolume}
@@ -362,6 +366,58 @@ function PomodoroSection() {
       />
     </Section>
   );
+}
+
+/**
+ * §5.6's audio has three ways to be silent that look identical to the user:
+ * never unlocked, suspended after a background, or muted by the iPhone ringer
+ * switch. The first two are observable and reported here; the third is not
+ * observable at all from the web, so it is stated as a hint.
+ */
+function AudioStatusRow() {
+  const state = useSyncExternalStore(
+    subscribeToAudioState,
+    audioState,
+    () => "locked" as const,
+  );
+
+  const label =
+    state === "running"
+      ? t.settings.audioRunning
+      : state === "suspended"
+        ? t.settings.audioSuspended
+        : state === "unsupported"
+          ? t.settings.audioUnsupported
+          : t.settings.audioLocked;
+
+  return (
+    <div className="space-y-1.5 rounded-lg border border-border bg-surface-2 px-3 py-2.5">
+      <Row
+        label={t.settings.audioStatus}
+        control={
+          <span
+            className={cn(
+              "text-[13px] font-medium",
+              state === "running" ? "text-success" : "text-warning",
+            )}
+          >
+            {state === "running" ? t.settings.audioRunning : "—"}
+          </span>
+        }
+      />
+      <p className="text-[12px] text-fg-subtle">{label}</p>
+      <p className="text-[12px] text-fg-subtle">{t.settings.audioIosHint}</p>
+    </div>
+  );
+}
+
+/**
+ * The audio state changes without any event of its own, so it is polled — but
+ * only while Settings is open, and only twice a second.
+ */
+function subscribeToAudioState(onChange: () => void): () => void {
+  const timer = setInterval(onChange, 500);
+  return () => clearInterval(timer);
 }
 
 function AudioRow({

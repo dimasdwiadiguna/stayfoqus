@@ -962,3 +962,74 @@ timeline afterwards.
 A first pass used denser stripes and the commute band ended up louder than the
 agenda it belonged to, inverting the hierarchy; the weave was thinned until the
 agenda clearly reads first.
+
+### D-083 · Three separate iOS-only reasons the pomodoro was silent — **Bug**
+
+Reported as "no sound on Safari iOS" after D-080 had already fixed the
+gesture-timing bug that silenced desktop. iOS needs three more things, and
+missing any one of them produces the identical symptom, so they were fixed
+together:
+
+**1. The hardware silent switch.** By default iOS routes Web Audio through the
+*ambient* audio session, which the ringer switch mutes outright. No amount of
+correct Web Audio code plays a sound on a phone with that switch flipped. The
+only remedy is `navigator.audioSession.type = "playback"` (Safari 16.4+), now
+set when the context is created and again on every prime. There is no feature
+test beyond the property's existence, and it is inert elsewhere.
+
+**2. The context is suspended when the page stops being visible**, and
+`resume()` is refused outside a gesture. A 25-minute session almost always ends
+in exactly that state — the user starts it and puts the phone down — so the bell
+was being dropped precisely when it mattered most. A silent looping buffer
+(`beginAudioSession`) now holds the session open for the life of a run and is
+released when the timer goes idle.
+
+**3. JS timers are throttled or stopped in a backgrounded page**, so the tick
+that *notices* the phase ended may not run until the user returns. The bell is
+therefore **booked on the audio clock** at phase start (`scheduleBell`), not
+played from the tick: Web Audio's scheduler runs on the audio thread and fires
+regardless of the main thread, as long as the context is alive — which (2)
+guarantees. Anything that changes when the phase ends (pause, resume, skip,
+abort, turning the bell off) cancels and re-books; the tick's own `playBell` is
+now a fallback for when nothing was booked, so the two can never double up.
+
+**Honest limitation:** this environment has no iOS Safari, so I verified the
+code paths, the desktop behaviour and the new diagnostic — not the fix on a real
+iPhone. (1) in particular is device behaviour I cannot reproduce here.
+
+That is also why Settings gained an **audio status** row. Three of the failure
+modes above are invisible to the user and look identical; the row reports the
+two that are observable (never unlocked / suspended) and states the third — the
+silent switch — as a hint, since the web cannot detect it at all.
+
+### D-084 · Completing a task asks how many pomodoros it took — **Requested, new rule**
+
+Not in the brief. §4.4 assumes every pomodoro arrives through the timer, and
+§5.8 only back-fills them when reviewing a *missed agenda*. But work routinely
+happens away from the app, and completing such a todo left today's counters
+claiming nothing had happened.
+
+The requirement was that the answer move **both** of today's numbers. That is
+what makes this more than writing logs: logs alone raise *used* and leave the
+progress ring reading `3/0`, which is worse than not asking. So the plan always
+ensures an agenda exists **today** whose allocation covers the reported total,
+then attaches the logs to it:
+
+- an agenda already on today → raise its allocation (the latest one, accounting
+  for the others), rather than adding a block the user never scheduled
+- no agenda today → create one, `status: 'done'`, ending *now* so it never
+  reads as outstanding work
+- already covered → write nothing
+
+Only the shortfall is logged, so re-completing a todo, or completing one the
+timer already tracked, cannot double-count. Zero is a valid answer.
+
+Pre-filled with what the timer recorded, or the estimate when it recorded
+nothing — the common case is one tap on **Simpan**. The rule lives in
+`lib/todos/completion.ts` as a pure planner with 15 tests, because the
+arithmetic (shortfalls, top-ups, local-day boundaries) is exactly the kind that
+looks obvious and is not.
+
+Verified end to end: a todo estimated at 3, completed with no timer history,
+moved the header from `0/0` to `3/3` and produced one `done` agenda of 3
+pomodoros on the calendar.
