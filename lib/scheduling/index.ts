@@ -16,4 +16,5 @@ export * from "@/lib/scheduling/session";
 export * from "@/lib/scheduling/timeblocks";
 export * from "@/lib/scheduling/placement";
 export * from "@/lib/scheduling/allocate";
+export * from "@/lib/scheduling/chain";
 export * from "@/lib/scheduling/context";

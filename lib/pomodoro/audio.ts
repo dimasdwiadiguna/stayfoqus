@@ -334,6 +334,42 @@ export function hasScheduledBell(): boolean {
   return scheduled.length > 0;
 }
 
+/**
+ * A short rising arpeggio for a completed planning session.
+ *
+ * Distinct from the pomodoro bell on purpose: that one marks the end of an
+ * interval and should be calm, this one marks an accomplishment and rises. Four
+ * partials of a major triad, each brief, played over ~700 ms.
+ */
+export function playFanfare(volume = 0.6): void {
+  const ctx = context;
+  const out = master;
+  if (!ctx || !out || ctx.state !== "running" || volume <= 0) return;
+
+  const now = ctx.currentTime;
+  // C5 – E5 – G5 – C6: a plain major arpeggio, which reads as "resolved".
+  const notes = [523.25, 659.25, 783.99, 1046.5];
+
+  notes.forEach((freq, i) => {
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    const start = now + i * 0.11;
+    const decay = i === notes.length - 1 ? 1.1 : 0.45;
+
+    osc.type = "triangle";
+    osc.frequency.setValueAtTime(freq, start);
+
+    const peak = Math.max(0.0002, Math.min(0.4, 0.34 * volume));
+    gain.gain.setValueAtTime(0.0001, start);
+    gain.gain.exponentialRampToValueAtTime(peak, start + 0.02);
+    gain.gain.exponentialRampToValueAtTime(0.0001, start + decay);
+
+    osc.connect(gain).connect(out);
+    osc.start(start);
+    osc.stop(start + decay + 0.05);
+  });
+}
+
 /** Settings → "Coba suara". Unlocks first, since it is itself a user gesture. */
 export async function previewSound(
   which: "tick" | "bell",

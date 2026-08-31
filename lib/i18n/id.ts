@@ -194,6 +194,16 @@ export const id = {
       cancelled: "Dibatalkan",
     },
     scheduleSheetTitle: "Jadwalkan",
+    tabList: "Daftar",
+    tabCalendar: "Kalender",
+    tabCustom: "Custom",
+    tapToPlace: "Ketuk kolom hari untuk menaruh blok, lalu geser untuk menyetel.",
+    immediatelyAfter: "Langsung setelah agenda sebelumnya",
+    unlinkImmediatelyAfter: "Lepas dari agenda sebelumnya",
+    immediatelyAfterHint:
+      "Terkunci ke jam selesai buffer agenda sebelumnya — kalau agenda itu digeser, yang ini ikut.",
+    immediatelyAfterBadge: "Mengikuti",
+    linkCycle: "Tidak bisa: rantainya akan berputar.",
     suggestedSlots: "Slot yang disarankan",
     noSlots:
       "Tidak ada slot kosong yang cocok. Coba perpanjang jam produktif atau pilih waktu lain.",
@@ -207,6 +217,34 @@ export const id = {
     parentBeforeChild: (names: string[]) =>
       `Subtask belum selesai dijadwalkan lebih dulu: ${names.join(", ")}. Induk tidak bisa dimulai sebelum subtask-nya.`,
     parentBeforeChildShort: "Tidak bisa mulai sebelum subtask-nya.",
+  },
+
+  planning: {
+    button: "Perencanaan harian",
+    title: "Perencanaan harian",
+    stepTargets: "Pilih target pekan ini",
+    stepTargetsHint:
+      "Centang tugas yang mau kamu kerjakan pekan ini. Boleh tambah tugas baru di sini.",
+    stepMit: "Pilih 3 tugas terpenting",
+    stepMitHint:
+      "Yang kamu pilih jadi prioritas tertinggi, dan dijadwalkan lebih dulu.",
+    stepSchedule: "Jadwalkan satu per satu",
+    stepScheduleHint: "Urut dari yang paling penting.",
+    selected: (n: number) => `${n} dipilih`,
+    mitCounter: (n: number) => `${n}/3 dipilih`,
+    mitFull: "Sudah 3. Lepas salah satu untuk mengganti.",
+    next: "Lanjut",
+    back: "Kembali",
+    finish: "Selesai",
+    addTask: "Tambah tugas baru…",
+    noCandidates: "Belum ada tugas. Tambahkan satu di atas.",
+    scheduleNow: "Jadwalkan",
+    skipTask: "Lewati",
+    remaining: (n: number) => `${n} tugas lagi`,
+    allScheduled: "Semua sudah dijadwalkan.",
+    doneTitle: "Rencana pekan ini siap",
+    doneSubtitle: (n: number) => `${n} tugas terjadwal.`,
+    close: "Tutup",
   },
 
   week: {

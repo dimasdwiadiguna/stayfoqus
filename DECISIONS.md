@@ -1033,3 +1033,127 @@ looks obvious and is not.
 Verified end to end: a todo estimated at 3, completed with no timer history,
 moved the header from `0/0` to `3/3` and produced one `done` agenda of 3
 pomodoros on the calendar.
+
+---
+
+## Scheduling picker, "immediately after", and the planning wizard
+
+### D-085 · The Jadwalkan sheet gets three tabs — **Requested**
+
+§8 specifies one way to pick a slot: three recommended chips plus "Pilih waktu
+lain…". That is the fastest path when the suggestions are right and a dead end
+when they are not — a bare date-and-time field gives no sense of what the day
+already looks like.
+
+Three tabs now, with the brief's path still first and still the default:
+
+- **Daftar** — the recommended slots, unchanged (raised from 3 to 5, since the
+  list is no longer the only option and a longer list costs nothing here)
+- **Kalender** — a 3-day timeline showing the same obstacles the scheduler
+  sees; tap to place, drag to adjust
+- **Custom** — type a date and time
+
+Duration moved *above* the tabs. It is a property of the work, not of how the
+user happens to pick a time for it, so asking it once per sheet rather than
+once per tab was the only coherent arrangement.
+
+### D-086 · The calendar tab places a block already the right size — **Interpreted**
+
+The request was for a view "yang bisa di tap untuk memunculkan draft block …
+ukurannya sudah sesuai dengan estimasi waktu". Implemented literally: the tap
+answers *where*, never *how long*. The draft also renders its own buffers, so
+the space the agenda really needs — not just its core — is visible while
+choosing.
+
+Two mechanical details worth recording, both found by testing:
+
+- A tap in the past clamps to "now", which is not on the 5-minute grid. Snapping
+  happens *after* clamping, or a tap would land on something like 23:49.
+- Every decorative layer in the column is `pointer-events: none`. One of them
+  was not, and it silently swallowed every tap — the feature looked implemented
+  and did nothing.
+
+### D-087 · "Immediately after" is a stored link, not a computed time — **Requested, new schema**
+
+The request: butting two agendas together should be able to mean *follows*, and
+"locknya bukan ke jam mulai agenda ini, tapi ke jam selesai buffer agenda
+sebelumnya".
+
+That is not expressible in the existing model. §5.2 gives the rule for the gap
+between two agendas but assumes both own their start time, so a deliberately
+back-to-back pair silently drifts apart the moment the first one moves. New
+column `agendas.follows_agenda_id` makes the *relationship* the stored fact and
+the start time the derived one (Dexie v2 + migration 0002).
+
+**Where the gap comes from.** The follower starts at the predecessor's end plus
+§5.2's composed `required_gap` — the same rule the free-space map and the
+allocator already use. Whenever the follower asks for no more than the
+predecessor already reserves, that reduces exactly to "the end of the previous
+agenda's buffer", which is what was asked for; when it asks for more, the pair
+cannot end up closer together than the scheduler itself would have placed them.
+
+`lib/scheduling/chain.ts` is pure and resolves the whole graph: transitive
+(a three-deep chain settles in one pass, in order), deterministic when two
+agendas follow the same predecessor, and cycle-safe — a cycle is *reported*
+rather than walked, since there is no correct answer and looping would hang the
+UI. `wouldCycle` refuses the link before it is ever stored. 23 tests.
+
+Consequences elsewhere, each deliberate:
+
+- A pinned agenda's date and time fields are **disabled** in the agenda sheet.
+  Its start is derived; editing it there would be overwritten by the next
+  resolve, which is worse than not offering it.
+- Dragging a pinned agenda by hand **clears the pin** — the user just chose a
+  time, and silently snapping back would be baffling.
+- Deleting a predecessor clears its followers' links rather than leaving them
+  pinned to a ghost.
+- The offer only appears when the block is genuinely butted against a
+  neighbour (within 6 minutes, measured *through* the buffer rule), so it feels
+  earned rather than arbitrary.
+
+Verified end to end in a browser: B pinned to A at A's end + 10-minute buffer;
+dragging A from 21:00 to 20:00 moved B from 21:35 to 20:35 on its own.
+
+### D-088 · The planning wizard reuses the ordinary scheduling sheet — **Requested**
+
+Three steps, each one decision: pick this week's targets (new tasks can be
+created inline), name the three most important, then schedule them one at a
+time in that order.
+
+Two choices worth stating:
+
+- **The three MITs are stored as priority 1**, not as a separate flag. §4.2's P1
+  is "Mendesak", and naming a task one of the day's three most important *is*
+  that claim. A parallel flag would be invisible to the sorter, the grouping,
+  the allocator and the task row — everything that already understands priority.
+- **Step 3 opens the same `ScheduleSheet` the rest of the app uses**, rather
+  than a wizard-specific picker. One scheduling flow, so the three tabs, the
+  buffer rules, the parent-ordering refusal and the confirmations all behave
+  identically inside the wizard and outside it.
+
+Targets are committed to `focus_week` when step 1 is left, so a plan survives
+closing the wizard half-way.
+
+### D-089 · The celebration, and the verse — **Requested**
+
+§9's rule still governs: celebration is scarce. Finishing a plan is a real
+commitment rather than a tap, so it earns confetti, a rising arpeggio (distinct
+from the pomodoro bell, which marks an *interval* and should stay calm), a
+haptic pattern, and a verse.
+
+On the verses specifically:
+
+- A **small, fixed, hand-checked set of five**, chosen for their fit with
+  finishing a piece of work and committing to the next — Al-Insyirah 94:5-6 and
+  94:7, At-Taubah 9:105, Al-Baqarah 2:286, Ar-Ra'd 13:11. Translations follow
+  the Kemenag rendering. This is scripture; generating or paraphrasing it would
+  be the wrong kind of clever, so the set is data, not a template.
+- **Picked deterministically from the date**, so re-opening the screen never
+  reshuffles it.
+- Each ayah is its own line rather than one string joined by ۝. That glyph is
+  missing from the default font stack on most devices and rendered as a tofu
+  box — a visible bug in the middle of scripture, which is exactly where one
+  should not be. (Caught in a screenshot, not by a test.)
+
+The whole thing respects `prefers-reduced-motion`, and the sound follows the
+existing bell setting rather than adding one.

@@ -266,6 +266,7 @@ export async function completeTodoWithPomodoro(
       gcal_event_id: null,
       gcal_synced_at: null,
       gcal_conflict: false,
+      follows_agenda_id: null,
     });
     targetAgendaId = created.id;
   } else if (plan.topUpAgendaId) {

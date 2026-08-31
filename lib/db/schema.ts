@@ -113,6 +113,14 @@ export interface Agenda extends BaseRow, LocalMeta {
   gcal_event_id: string | null;
   gcal_synced_at: IsoDateTime | null;
   gcal_conflict: boolean;
+  /**
+   * "Immediately after": this agenda is pinned to the *end of another agenda's
+   * buffer* rather than to a clock time. Move the predecessor and this one
+   * follows; its own `start_at` is derived, not authored.
+   *
+   * Null for the overwhelming majority of agendas, which own their start time.
+   */
+  follows_agenda_id: UUID | null;
 }
 
 /* ------------------------------------------------------------------ */
