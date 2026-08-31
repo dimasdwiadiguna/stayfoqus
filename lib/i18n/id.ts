@@ -121,6 +121,12 @@ export const id = {
       `Ketergantungan melingkar: ${names.join(" → ")}. Tidak bisa disimpan.`,
     deleted: "Tugas dihapus.",
     completed: "Tugas selesai.",
+    completedPomodoroPrompt: "Berapa pomodoro yang terpakai untuk tugas ini?",
+    completedPomodoroHint:
+      "Ditambahkan ke pomodoro selesai dan pomodoro terencana hari ini.",
+    completedPomodoroAlready: (n: number) =>
+      `${n} sudah tercatat hari ini — sisanya yang ditambahkan.`,
+    completedPomodoroNone: "Tidak ada pomodoro",
     hasFutureAgendas: (n: number) => `Hapus ${n} agenda yang belum jalan?`,
     keepAgendas: "Biarkan",
     removeAgendas: "Hapus agenda",
@@ -349,6 +355,13 @@ export const id = {
     bell: "Bel akhir sesi",
     bellVolume: "Volume bel",
     testSound: "Coba suara",
+    audioStatus: "Status audio",
+    audioLocked: "Belum aktif — ketuk “Coba suara” sekali.",
+    audioSuspended: "Tertahan — ketuk “Coba suara” untuk mengaktifkan lagi.",
+    audioRunning: "Aktif",
+    audioUnsupported: "Perangkat ini tidak mendukung Web Audio.",
+    audioIosHint:
+      "Di iPhone, saklar senyap (silent switch) juga membisukan suara ini. Kalau sudah aktif tapi tetap tak terdengar, coba matikan mode senyap.",
 
     categoryName: "Nama",
     categoryColor: "Warna",

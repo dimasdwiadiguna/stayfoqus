@@ -21,6 +21,7 @@ import {
   skipPhase,
   startFocusSession,
   stopSession,
+  syncPomodoroSettings,
   usePomodoroStore,
 } from "@/lib/pomodoro/store";
 import {
@@ -228,20 +229,23 @@ export function FocusOverlay() {
 export function usePomodoroSettingsSync() {
   const settings = useSettings();
   React.useEffect(() => {
-    usePomodoroStore.getState().set({
-      config: {
+    // Routed through the store action rather than `set` directly, so a bell
+    // toggled off mid-session also drops a chime already booked on the audio
+    // clock.
+    syncPomodoroSettings(
+      {
         focusMin: settings.pomodoro_focus_min,
         shortBreakMin: settings.pomodoro_short_break_min,
         longBreakMin: settings.pomodoro_long_break_min,
         longBreakEvery: settings.pomodoro_long_break_every,
       },
-      audio: {
+      {
         ticking: settings.ticking_enabled,
         tickingVolume: settings.ticking_volume,
         bell: settings.bell_enabled,
         bellVolume: settings.bell_volume,
       },
-    });
+    );
   }, [
     settings.pomodoro_focus_min,
     settings.pomodoro_short_break_min,

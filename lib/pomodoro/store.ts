@@ -6,9 +6,15 @@ import { getDb } from "@/lib/db/client";
 import { createRow, newId, updateRow } from "@/lib/db/mutations";
 import type { PomodoroType, UUID } from "@/lib/db/schema";
 import {
+  beginAudioSession,
+  cancelScheduledBell,
+  endAudioSession,
+  hasScheduledBell,
   playBell,
   playTick,
+  primeAudio,
   resumeAudio,
+  scheduleBell,
   unlockAudio,
 } from "@/lib/pomodoro/audio";
 import {
@@ -16,7 +22,9 @@ import {
   abort,
   advance,
   dismiss,
+  isPaused,
   pause,
+  remainingMs,
   resume,
   skip,
   startFocus,
@@ -135,7 +143,12 @@ async function applyEffects(effects: TimerEffect[]): Promise<void> {
         break;
 
       case "chime":
-        if (audio.bell) {
+        // The bell was normally already booked on the audio clock when the
+        // phase started (see `syncScheduledBell`), which is what makes it ring
+        // on a backgrounded phone. Playing again here would double it, so this
+        // only covers the case where nothing was booked — a phase ended early,
+        // or the context was not running when it began.
+        if (audio.bell && !hasScheduledBell()) {
           playBell(audio.bellVolume, effect.kind === "focus" ? "focus" : "break");
         }
         haptic([12, 60, 18]);
@@ -156,6 +169,39 @@ async function commit(result: { state: TimerState; effects: TimerEffect[] }) {
   persist(result.state);
   await applyEffects(result.effects);
   await syncWakeLock(result.state);
+  syncAudioSession(result.state);
+}
+
+/**
+ * Keeps the audio session and the booked chime in step with the phase.
+ *
+ * Called after every transition, so pausing cancels the booking, resuming
+ * re-books it from the new end time, and going idle releases the keep-alive.
+ */
+function syncAudioSession(state: TimerState): void {
+  const { audio } = read();
+  const phase = state.phase;
+
+  if (!phase) {
+    cancelScheduledBell();
+    endAudioSession();
+    return;
+  }
+
+  // Held for the whole run, breaks included: a break that ends unheard is the
+  // same failure as a focus session that does.
+  beginAudioSession();
+
+  if (!audio.bell || isPaused(phase)) {
+    cancelScheduledBell();
+    return;
+  }
+
+  scheduleBell(
+    remainingMs(phase, Date.now()) / 1000,
+    audio.bellVolume,
+    phase.kind === "focus" ? "focus" : "break",
+  );
 }
 
 /* ------------------------------------------------------------------ */
@@ -212,6 +258,8 @@ export interface StartOptions {
  * because iOS only unlocks audio inside a user gesture.
  */
 export async function startFocusSession(options: StartOptions = {}): Promise<void> {
+  // Synchronous first, so the unlock happens while this is still the gesture.
+  primeAudio();
   await unlockAudio();
   const { timer, config } = read();
   const result = startFocus(timer, {
@@ -265,6 +313,9 @@ export function syncPomodoroSettings(
   audio: PomodoroStore["audio"],
 ): void {
   write({ config, audio });
+  // Turning the bell off mid-session must drop a booking already on the audio
+  // clock, or it would ring anyway.
+  syncAudioSession(read().timer);
 }
 
 /**
@@ -333,6 +384,9 @@ export function startPomodoroEngine(): () => void {
     void resumeAudio();
     void step();
     void syncWakeLock(read().timer);
+    // Coming back may have found the phase already over, or resumed a context
+    // that dropped its booking; re-sync either way.
+    syncAudioSession(read().timer);
   };
 
   document.addEventListener("visibilitychange", onVisibility);
@@ -343,6 +397,8 @@ export function startPomodoroEngine(): () => void {
     document.removeEventListener("visibilitychange", onVisibility);
     if (ticker) clearInterval(ticker);
     void syncWakeLock(IDLE);
+    cancelScheduledBell();
+    endAudioSession();
   };
 }
 
