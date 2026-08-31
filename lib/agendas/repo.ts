@@ -17,6 +17,7 @@ import type {
   UUID,
 } from "@/lib/db/schema";
 import type { GcalOutboxOp } from "@/lib/gcal/types";
+import { danglingLinks, resolveChains, wouldCycle } from "@/lib/scheduling/chain";
 
 /**
  * Agenda writes, including the Google Calendar side effects from §6.2.
@@ -56,6 +57,8 @@ export interface NewAgendaInput {
   buffer_before_type?: BufferType;
   buffer_after_min?: number;
   buffer_after_type?: BufferType;
+  /** §"immediately after": pin to the end of this agenda's buffer. */
+  follows_agenda_id?: UUID | null;
   id?: UUID;
 }
 
@@ -80,6 +83,7 @@ export async function createAgenda(
     gcal_event_id: null,
     gcal_synced_at: null,
     gcal_conflict: false,
+    follows_agenda_id: input.follows_agenda_id ?? null,
   });
 
   if (isSyncable(status)) await queueGcalUpsert(agenda.id);
@@ -100,6 +104,7 @@ export type AgendaPatch = Partial<
     | "status"
     | "outside_window"
     | "gcal_conflict"
+    | "follows_agenda_id"
   >
 >;
 
@@ -118,7 +123,77 @@ export async function updateAgenda(
     await queueGcalDelete(agendaId, next.gcal_event_id);
     await getDb().agendas.update(agendaId, { gcal_event_id: null });
   }
+
+  // Moving, resizing or re-buffering an agenda drags everything pinned behind
+  // it. Skipped when the patch cannot have changed where anything ends.
+  if (
+    patch.start_at !== undefined ||
+    patch.end_at !== undefined ||
+    patch.buffer_after_min !== undefined ||
+    patch.buffer_after_type !== undefined ||
+    patch.buffer_before_min !== undefined ||
+    patch.buffer_before_type !== undefined ||
+    patch.follows_agenda_id !== undefined
+  ) {
+    await applyChainMoves();
+  }
+
   return next;
+}
+
+/* ------------------------------------------------------------------ */
+/* "immediately after" chains                                          */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Recomputes every pinned agenda's position and writes the ones that moved.
+ *
+ * Called after any change that could have shifted where something ends. The
+ * writes go through `updateRow` so they sync and queue their Google updates
+ * like any other edit — a follower that moved really did move.
+ */
+export async function applyChainMoves(): Promise<number> {
+  const db = getDb();
+  const agendas = (await db.agendas.toArray()).filter((a) => !a.deleted_at);
+
+  // A predecessor that no longer exists leaves the follower pinned to nothing.
+  // Clearing the link turns it back into an ordinary agenda rather than leaving
+  // it quietly broken.
+  for (const orphanId of danglingLinks(agendas)) {
+    await updateRow("agendas", orphanId, { follows_agenda_id: null });
+  }
+
+  const fresh = (await db.agendas.toArray()).filter((a) => !a.deleted_at);
+  const { moves } = resolveChains(fresh);
+
+  for (const move of moves) {
+    await updateRow("agendas", move.id, {
+      start_at: move.start_at,
+      end_at: move.end_at,
+    });
+    const row = await db.agendas.get(move.id);
+    if (row && isSyncable(row.status)) await queueGcalUpsert(move.id);
+  }
+
+  return moves.length;
+}
+
+export type LinkResult = { ok: true } | { ok: false; reason: "cycle" };
+
+/**
+ * Pins `agendaId` to start as soon as `targetId` (and its buffer) is done.
+ * Refuses a link that would close a loop — there would be no correct answer.
+ */
+export async function linkImmediatelyAfter(
+  agendaId: UUID,
+  targetId: UUID | null,
+): Promise<LinkResult> {
+  if (targetId !== null) {
+    const agendas = (await getDb().agendas.toArray()).filter((a) => !a.deleted_at);
+    if (wouldCycle(agendas, agendaId, targetId)) return { ok: false, reason: "cycle" };
+  }
+  await updateAgenda(agendaId, { follows_agenda_id: targetId });
+  return { ok: true };
 }
 
 /**
@@ -133,6 +208,9 @@ export async function deleteAgenda(agendaId: UUID): Promise<Agenda | undefined> 
   if (agenda.gcal_event_id) {
     await queueGcalDelete(agendaId, agenda.gcal_event_id);
   }
+  // Anything pinned to it is now pinned to nothing; `applyChainMoves` unlinks
+  // those rather than leaving them following a ghost.
+  await applyChainMoves();
   return agenda;
 }
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { ChevronLeft, ChevronRight, ClipboardList } from "lucide-react";
 import * as React from "react";
 
 import { AgendaSheet } from "@/components/calendar/agenda-sheet";
@@ -11,6 +11,7 @@ import {
 import { BufferSwatch } from "@/components/calendar/buffer-band";
 import { DraftBar } from "@/components/calendar/draft-bar";
 import { TimelineScrollContext } from "@/components/calendar/scroll-context";
+import { PlanningWizard } from "@/components/planning/planning-wizard";
 import { HourGutter, TimelineDay } from "@/components/calendar/timeline";
 import { EmptyState, Screen, ScreenTitle } from "@/components/shell/screen";
 import { SyncIndicator } from "@/components/shell/sync-indicator";
@@ -72,6 +73,7 @@ export function CalendarScreen() {
   const [openAgendaId, setOpenAgendaId] = React.useState<UUID | null>(null);
   const [pendingMove, setPendingMove] = React.useState<PendingMove>(null);
   const [createAt, setCreateAt] = React.useState<CreateAtRequest | null>(null);
+  const [planningOpen, setPlanningOpen] = React.useState(false);
   const nowMs = useNow();
   const runningAgendaId = usePomodoroStore((s) => s.timer.agendaId);
 
@@ -297,6 +299,15 @@ export function CalendarScreen() {
             </Button>
           </div>
 
+          <Button
+            block
+            variant="primary"
+            onClick={() => setPlanningOpen(true)}
+          >
+            <ClipboardList className="size-4" />
+            {t.planning.button}
+          </Button>
+
           <div className="flex items-center justify-between gap-2">
             <Segmented
               ariaLabel={t.calendar.title}
@@ -429,6 +440,11 @@ export function CalendarScreen() {
           </TimelineScrollContext.Provider>
         </div>
       )}
+
+      <PlanningWizard
+        open={planningOpen}
+        onClose={() => setPlanningOpen(false)}
+      />
 
       <DraftBar />
 

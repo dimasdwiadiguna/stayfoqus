@@ -1,6 +1,6 @@
 "use client";
 
-import { AlertTriangle, CloudAlert } from "lucide-react";
+import { AlertTriangle, CloudAlert, Link2 } from "lucide-react";
 import * as React from "react";
 
 import { BufferBand } from "@/components/calendar/buffer-band";
@@ -220,6 +220,12 @@ export function AgendaBlock({
 
   const badges = (
     <>
+      {agenda.follows_agenda_id ? (
+        <Link2
+          className="size-3 shrink-0 text-success"
+          aria-label={t.agenda.immediatelyAfterBadge}
+        />
+      ) : null}
       {agenda.gcal_conflict ? (
         <CloudAlert
           className="size-3 shrink-0 text-warning"

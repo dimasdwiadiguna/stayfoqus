@@ -4,9 +4,13 @@ import { CalendarClock } from "lucide-react";
 import * as React from "react";
 
 import { DurationPicker } from "@/components/calendar/duration-picker";
+import {
+  PickTimeline,
+  type PickDraft,
+} from "@/components/calendar/pick-timeline";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/dialog";
-import { Field, Input } from "@/components/ui/field";
+import { Field, Input, Segmented } from "@/components/ui/field";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { toast } from "@/components/ui/toast";
 import { useNow } from "@/hooks/use-now";
@@ -14,7 +18,7 @@ import { useSchedulingWorld } from "@/hooks/use-scheduling";
 import { useSettings } from "@/hooks/use-settings";
 import { useTaskData } from "@/hooks/use-tasks";
 import { createAgenda } from "@/lib/agendas/repo";
-import type { Todo } from "@/lib/db/schema";
+import type { Todo, UUID } from "@/lib/db/schema";
 import { id as t } from "@/lib/i18n/id";
 import { haptic } from "@/lib/reward";
 import {
@@ -30,42 +34,70 @@ import {
   formatDuration,
   instantAt,
   localDate,
+  localTime,
 } from "@/lib/time";
 import { countersFor } from "@/lib/todos/derived";
 import { childrenBlockingStart, earliestStartFor } from "@/lib/todos/ordering";
 
-/** How far ahead the suggestion engine looks for the three chips (§8). */
+/** How far ahead the suggestion engine looks. */
 const HORIZON_DAYS = 14;
+/** Days shown in the calendar tab — three fit a phone without crowding. */
+const PICK_DAYS = 3;
 
-type PendingConfirm =
-  | { kind: "outside-window"; start: number; end: number; pomodoros: number }
-  | { kind: "time-block"; blockName: string; start: number; end: number; pomodoros: number }
-  | null;
+type PickMode = "list" | "calendar" | "custom";
+
+type PendingConfirm = {
+  kind: "outside-window" | "time-block";
+  blockName?: string;
+  start: number;
+  end: number;
+  pomodoros: number;
+  followsAgendaId: UUID | null;
+} | null;
 
 /**
- * §8: "converting a todo into an agenda goes through an explicit flow: … a
- * sheet offers 3 recommended slots as one-tap chips, plus 'Pilih waktu lain…'."
+ * §8's "Jadwalkan" flow, now with three ways to answer the same question.
  *
- * The chips come from the same free-space engine smart allocation uses, so a
- * suggested slot is always one allocation would have chosen.
+ * The brief specifies one: three recommended slots plus "Pilih waktu lain…".
+ * That is the fastest path when the suggestions are right and a dead end when
+ * they are not — a date-and-time field gives no sense of what the day already
+ * looks like. The tabs keep the fast path first and add the two the user
+ * reaches for when it misses:
+ *
+ *   Daftar   — the recommended slots (unchanged, still the default)
+ *   Kalender — see the day, tap where it should go, drag to adjust
+ *   Custom   — type a date and time
+ *
+ * Duration is chosen once, above the tabs: it is a property of the work, not of
+ * how the user happens to pick a time for it.
  */
 export function ScheduleSheet({
   todo,
   onClose,
   defaultPomodoros,
+  onScheduled,
 }: {
   todo: Todo | null;
   onClose: () => void;
   defaultPomodoros?: number;
+  /** Lets a caller (the planning wizard) advance after a successful schedule. */
+  onScheduled?: () => void;
 }) {
   return (
     <Sheet open={Boolean(todo)} onOpenChange={(open) => !open && onClose()}>
       {todo ? (
-        <SheetContent title={t.agenda.scheduleSheetTitle} description={todo.title}>
+        <SheetContent
+          title={t.agenda.scheduleSheetTitle}
+          description={todo.title}
+          className="h-[92dvh]"
+        >
           <ScheduleBody
             key={todo.id}
             todo={todo}
-            onDone={onClose}
+            onDone={() => {
+              onScheduled?.();
+              onClose();
+            }}
             defaultPomodoros={defaultPomodoros}
           />
         </SheetContent>
@@ -89,7 +121,7 @@ function ScheduleBody({
 
   /**
    * A parent may not start before its children. The suggestion list simply
-   * never offers an earlier slot, and the manual path refuses one.
+   * never offers an earlier slot, and the manual paths refuse one.
    */
   const childFloor = React.useMemo(
     () => earliestStartFor(index, todo.id, agendas),
@@ -100,21 +132,26 @@ function ScheduleBody({
   const world = useSchedulingWorld({ from: today, to: addDays(today, HORIZON_DAYS) });
 
   const remaining = countersFor(counters, todo.id).remainingToAllocate;
-  const [pomodoros, setPomodoros] = React.useState(
-    Math.max(1, Math.min(4, defaultPomodoros ?? remaining ?? 1)),
+  const initialPomodoros = Math.max(
+    1,
+    Math.min(4, defaultPomodoros ?? remaining ?? 1),
   );
-  // The duration is the value the user edits; the pomodoro count is derived
-  // from it so the dot row and the derived counters stay consistent.
+
+  const [mode, setMode] = React.useState<PickMode>("list");
+  const [pomodoros, setPomodoros] = React.useState(initialPomodoros);
   const [durationMin, setDurationMin] = React.useState(() =>
-    sessionDurationMin(Math.max(1, Math.min(4, defaultPomodoros ?? remaining ?? 1)), {
-      focusMin: 25,
-      shortBreakMin: 5,
+    sessionDurationMin(initialPomodoros, {
+      focusMin: settings.pomodoro_focus_min,
+      shortBreakMin: settings.pomodoro_short_break_min,
     }),
   );
+
+  const [draft, setDraft] = React.useState<PickDraft | null>(null);
   const [manualDate, setManualDate] = React.useState(today);
   const [manualTime, setManualTime] = React.useState("09:00");
-  const [manualOpen, setManualOpen] = React.useState(false);
   const [confirm, setConfirm] = React.useState<PendingConfirm>(null);
+
+  const floor = Math.max(now ?? 0, childFloor);
 
   const slots = React.useMemo(
     () =>
@@ -129,10 +166,10 @@ function ScheduleBody({
         buffers: world.buffers,
         shape: world.shape,
         pomodoros,
-        limit: 3,
-        notBefore: Math.max(now ?? 0, childFloor),
+        limit: 5,
+        notBefore: floor,
       }),
-    [todo.category_id, todo.tags, todo.priority, world, pomodoros, now, childFloor],
+    [todo.category_id, todo.tags, todo.priority, world, pomodoros, floor],
   );
 
   const commit = async (
@@ -140,6 +177,7 @@ function ScheduleBody({
     end: number,
     n: number,
     outsideWindow: boolean,
+    followsAgendaId: UUID | null,
   ) => {
     await createAgenda(
       {
@@ -148,6 +186,7 @@ function ScheduleBody({
         end_at: new Date(end).toISOString(),
         allocated_pomodoro: n,
         outside_window: outsideWindow,
+        follows_agenda_id: followsAgendaId,
       },
       settings,
     );
@@ -156,32 +195,32 @@ function ScheduleBody({
     onDone();
   };
 
-  const takeSlot = (slot: PlacementCandidate) => {
-    // Suggestions come from inside the free-space map, so they are legal by
-    // construction — no confirmation needed.
-    void commit(slot.start, slot.end, slot.pomodoros, false);
-  };
-
   /**
    * Manual placement is a *soft* constraint (§5.1, §5.4): allowed, but the user
-   * is told what they are stepping over first.
+   * is told what they are stepping over. Placing a parent before its children
+   * is the one hard refusal.
    */
-  const takeManual = () => {
-    const start = instantAt(manualDate, manualTime, settings.timezone).getTime();
-    const end = start + durationMin * 60_000;
-    const interval = { start, end };
-
-    // Hard rule, not a confirmation: a parent starting before its own subtasks
-    // is incoherent rather than merely unusual.
+  const submitManual = (
+    start: number,
+    end: number,
+    followsAgendaId: UUID | null,
+  ) => {
     if (start < childFloor) {
       const blockers = childrenBlockingStart(index, todo.id, agendas, start);
       toast.error(t.agenda.parentBeforeChild(blockers.map((c) => c.title)));
       return;
     }
 
-    const inside = isInsideWindow(interval, world.windows);
-    if (!inside) {
-      setConfirm({ kind: "outside-window", start, end, pomodoros });
+    const interval = { start, end };
+
+    if (!isInsideWindow(interval, world.windows)) {
+      setConfirm({
+        kind: "outside-window",
+        start,
+        end,
+        pomodoros,
+        followsAgendaId,
+      });
       return;
     }
 
@@ -197,15 +236,32 @@ function ScheduleBody({
         start,
         end,
         pomodoros,
+        followsAgendaId,
       });
       return;
     }
 
-    void commit(start, end, pomodoros, false);
+    void commit(start, end, pomodoros, false, followsAgendaId);
   };
 
+  const takeSlot = (slot: PlacementCandidate) => {
+    // Suggestions come from inside the free-space map, so they are legal by
+    // construction — no confirmation needed.
+    void commit(slot.start, slot.end, slot.pomodoros, false, null);
+  };
+
+  // Anchored on the earliest day anything could legally go, which is `floor`
+  // once "now" and the child-ordering rule are folded in.
+  const pickDays = React.useMemo(() => {
+    const anchor = localDate(
+      new Date(Number.isFinite(floor) ? floor : 0),
+      settings.timezone,
+    );
+    return Array.from({ length: PICK_DAYS }, (_, i) => addDays(anchor, i));
+  }, [floor, settings.timezone]);
+
   return (
-    <div className="space-y-5 pb-2">
+    <div className="space-y-4 pb-2">
       <Field
         label={t.agenda.fieldDuration}
         hint={remaining > 0 ? t.tasks.remainingToAllocate(remaining) : undefined}
@@ -216,15 +272,30 @@ function ScheduleBody({
           onChange={(minutes, n) => {
             setDurationMin(minutes);
             setPomodoros(n);
+            // A different length invalidates where the draft was placed.
+            setDraft((current) =>
+              current
+                ? { ...current, end: current.start + minutes * 60_000 }
+                : null,
+            );
           }}
         />
       </Field>
 
-      <section className="space-y-2">
-        <h3 className="text-[13px] font-medium text-fg-muted">
-          {t.agenda.suggestedSlots}
-        </h3>
-        {slots.length === 0 ? (
+      <Segmented
+        ariaLabel={t.agenda.scheduleSheetTitle}
+        value={mode}
+        onChange={setMode}
+        className="w-full"
+        options={[
+          { value: "list" as const, label: t.agenda.tabList },
+          { value: "calendar" as const, label: t.agenda.tabCalendar },
+          { value: "custom" as const, label: t.agenda.tabCustom },
+        ]}
+      />
+
+      {mode === "list" ? (
+        slots.length === 0 ? (
           <p className="text-[13px] text-fg-subtle">{t.agenda.noSlots}</p>
         ) : (
           <ul className="space-y-1.5">
@@ -239,7 +310,7 @@ function ScheduleBody({
                   <span className="min-w-0 flex-1">
                     <span className="block text-[15px]">
                       {formatDateWithWeekday(slot.date)} ·{" "}
-                      {timeOf(slot.start, settings.timezone)}
+                      {localTime(new Date(slot.start), settings.timezone)}
                     </span>
                     <span className="block text-[12px] text-fg-subtle">
                       {slot.pomodoros} {t.common.pomodoro} ·{" "}
@@ -250,11 +321,41 @@ function ScheduleBody({
               </li>
             ))}
           </ul>
-        )}
-      </section>
+        )
+      ) : null}
 
-      {manualOpen ? (
-        <section className="space-y-3 rounded-lg border border-border bg-surface-2 p-3">
+      {mode === "calendar" ? (
+        <div className="space-y-3">
+          <PickTimeline
+            days={pickDays}
+            timezone={settings.timezone}
+            windows={world.windows}
+            prayers={world.prayers}
+            timeBlocks={world.timeBlocks}
+            agendas={agendas}
+            busy={world.busy.filter((b) => b.source === "gcal_busy")}
+            durationMin={durationMin}
+            buffers={world.buffers}
+            draft={draft}
+            onChange={setDraft}
+            notBefore={floor}
+          />
+          <Button
+            variant="primary"
+            block
+            disabled={!draft}
+            onClick={() => {
+              if (!draft) return;
+              submitManual(draft.start, draft.end, draft.followsAgendaId);
+            }}
+          >
+            {t.common.save}
+          </Button>
+        </div>
+      ) : null}
+
+      {mode === "custom" ? (
+        <div className="space-y-3">
           <div className="grid grid-cols-2 gap-2">
             <Field label={t.agenda.fieldStart}>
               <Input
@@ -272,22 +373,29 @@ function ScheduleBody({
               />
             </Field>
           </div>
-          <Button variant="primary" block onClick={takeManual}>
+          <Button
+            variant="primary"
+            block
+            onClick={() => {
+              const start = instantAt(
+                manualDate,
+                manualTime,
+                settings.timezone,
+              ).getTime();
+              submitManual(start, start + durationMin * 60_000, null);
+            }}
+          >
             {t.common.save}
           </Button>
-        </section>
-      ) : (
-        <Button variant="ghost" block onClick={() => setManualOpen(true)}>
-          {t.agenda.pickAnotherTime}
-        </Button>
-      )}
+        </div>
+      ) : null}
 
       <ConfirmDialog
         open={confirm !== null}
         onOpenChange={(open) => !open && setConfirm(null)}
         title={
           confirm?.kind === "time-block"
-            ? t.calendar.timeBlockConfirm(confirm.blockName)
+            ? t.calendar.timeBlockConfirm(confirm.blockName ?? "")
             : t.calendar.outsideWindowConfirm
         }
         confirmLabel={
@@ -302,6 +410,7 @@ function ScheduleBody({
             confirm.end,
             confirm.pomodoros,
             confirm.kind === "outside-window",
+            confirm.followsAgendaId,
           );
         }}
       />
@@ -309,13 +418,4 @@ function ScheduleBody({
   );
 }
 
-function timeOf(ms: number, timezone: string): string {
-  return new Date(ms).toLocaleTimeString("id-ID", {
-    timeZone: timezone,
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
-
-/** Local-only helper used by the sheet's manual path and the calendar. */
 export { HORIZON_DAYS };

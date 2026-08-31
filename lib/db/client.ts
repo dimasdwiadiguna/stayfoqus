@@ -60,6 +60,23 @@ export class FoqusDatabase extends Dexie {
       conflict_log: "id, created_at, acknowledged",
       sync_state: "table_name",
     });
+
+    // v2 adds `agendas.follows_agenda_id` — the "immediately after" link.
+    // Indexed because resolving a chain asks "who follows this agenda?" on
+    // every move. Existing rows are backfilled to null.
+    this.version(2)
+      .stores({
+        agendas:
+          "id, todo_id, start_at, end_at, status, gcal_event_id, updated_at, dirty, follows_agenda_id, [status+end_at], [todo_id+status]",
+      })
+      .upgrade((tx) =>
+        tx
+          .table("agendas")
+          .toCollection()
+          .modify((agenda: { follows_agenda_id?: string | null }) => {
+            agenda.follows_agenda_id = null;
+          }),
+      );
   }
 }
 

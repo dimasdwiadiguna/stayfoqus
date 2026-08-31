@@ -67,6 +67,7 @@ export function makeAgenda(overrides: Partial<Agenda> = {}): Agenda {
     gcal_event_id: null,
     gcal_synced_at: null,
     gcal_conflict: false,
+    follows_agenda_id: null,
     ...overrides,
   };
 }

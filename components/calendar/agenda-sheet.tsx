@@ -13,7 +13,7 @@ import { Chip, Field, Input } from "@/components/ui/field";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { usePomodoroLogs } from "@/hooks/use-tasks";
 import { useSettings } from "@/hooks/use-settings";
-import { updateAgenda } from "@/lib/agendas/repo";
+import { linkImmediatelyAfter, updateAgenda } from "@/lib/agendas/repo";
 import { getDb } from "@/lib/db/client";
 import type { Agenda, BufferType, UUID } from "@/lib/db/schema";
 import { id as t } from "@/lib/i18n/id";
@@ -181,6 +181,20 @@ function AgendaSheetContent({
           />
         </div>
 
+        {agenda.follows_agenda_id ? (
+          <div className="space-y-2 rounded-lg border border-success/40 bg-success/10 px-3 py-2.5">
+            <p className="text-[13px] text-success">
+              {t.agenda.immediatelyAfterHint}
+            </p>
+            <Button
+              size="sm"
+              onClick={() => void linkImmediatelyAfter(agenda.id, null)}
+            >
+              {t.agenda.unlinkImmediatelyAfter}
+            </Button>
+          </div>
+        ) : null}
+
         {agenda.outside_window ? (
           <p className="rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-[13px] text-warning">
             {t.calendar.outsideWindowBadge}
@@ -209,6 +223,7 @@ function AgendaSheetContent({
             <Input
               type="date"
               value={date}
+              disabled={agenda.follows_agenda_id !== null}
               onChange={(e) => moveTo(e.target.value, time)}
             />
           </Field>
@@ -217,6 +232,9 @@ function AgendaSheetContent({
               type="time"
               step={300}
               value={time}
+              // A pinned agenda's start is derived, not authored — editing it
+              // here would be overwritten by the next chain resolve.
+              disabled={agenda.follows_agenda_id !== null}
               onChange={(e) => moveTo(date, e.target.value)}
             />
           </Field>
