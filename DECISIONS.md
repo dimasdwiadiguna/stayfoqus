@@ -1157,3 +1157,223 @@ On the verses specifically:
 
 The whole thing respects `prefers-reduced-motion`, and the sound follows the
 existing bell setting rather than adding one.
+
+---
+
+## Kalender: geser, rantai, dan penghindaran sholat
+
+Second round of feedback from real use. Two requests were direct changes to
+gestures; the rest came out of a list of proposed UI/UX fixes that was reviewed
+and picked from. Four of them change a *rule* rather than a component, so they
+are recorded in full.
+
+### D-090 · Resize is gone; the block is one move surface — **Deviated (requested)**
+
+§8 gives the block two drags: move (5-minute snap) and resize from an edge
+(pomodoro-ladder snap). The resize edge was removed on request: *"user tidak
+diperbolehkan mengubah durasi event dengan mendrag pinggir event."*
+
+It was the right call for three reasons beyond the request itself. The handle
+was 22 px on a 390 px screen, sitting inside the move target and immediately
+next to the gesture that scrolls a 2160 px column — the exact geometry D-077
+already had to rescue once. It was also the *worse* of two ways to set a
+length: D-079's presets express "10 menit" directly, while the ladder could
+only ever produce 25 / 55 / 85 / 115. And it was the only gesture in the app
+that could change how much work an agenda represents without ever showing the
+number it was changing.
+
+`snapToPomodoro` went with it. `pomodorosForDuration` and `sessionDurationMin`
+are untouched — the duration picker is now their only caller from the UI, and
+the §5.7 dot row still derives from `allocated_pomodoro` exactly as before.
+
+### D-091 · A chain is made by dragging, not by a button — **Requested**
+
+D-087 stored the "immediately after" relationship but left only one way to
+create it: a button in the Jadwalkan sheet's calendar tab. On the calendar
+itself, butting two blocks together meant nothing.
+
+The request was for the gesture to carry it: a green line between the two while
+dragging, and a confirmation on release. Three decisions inside that:
+
+**The cue must never lie.** `dragLinkCandidate` filters out the block being
+moved and, via `wouldCycle`, anything whose link `linkImmediatelyAfter` would
+refuse. Offering a link that the drop then rejects would be worse than not
+offering one. The commit re-checks against live Dexie anyway, since the
+candidate was computed from a drag-time snapshot.
+
+**Tolerance is 15 minutes, not `abuttingPredecessor`'s 6.** They answer
+different questions. Six minutes is "did this come to rest against that"; 15 is
+"is this reaching for that", and at 1.5 px/min it is the ~22 px a thumb travels
+while deciding. Within it the preview *snaps* to `chainedStart`, so releasing
+where the line appears produces exactly the placement the line described.
+
+**The gap still comes from `chainedStart`.** One rule (§5.2's composed
+`required_gap`), not a second one that happens to agree.
+
+The release question has three answers, which is why it reuses `ConfirmDialog`
+with the D-024 shape: confirm links, the explicit cancel places the block
+without a link, and dismissing with Escape answers nothing — so the block stays
+where it was. D-087's rule that dragging a pinned agenda *releases* its pin is
+kept and made structural: `commitMove` always writes `follows_agenda_id`
+explicitly rather than leaving the column alone.
+
+The seam is drawn between the two *footprints* (predecessor end + its after
+buffer, follower start − its before buffer), not between the block edges,
+because the buffers are what the link preserves. With buffers of the same type
+§5.2 collapses those to one instant and it renders as a single line.
+
+### D-092 · Every block in the slot picker says what it is — **Requested**
+
+`PickDay` drew agendas as boxes containing a start time, and time blocks,
+prayer blocks and busy bands with no label at all — on the one screen whose
+entire purpose is deciding *where*. Choosing the slot after "rapat tim" is a
+different decision from choosing the slot after an unlabelled rectangle.
+
+All four layers are named now. The time block's name is plain text here rather
+than the skip button it is on the main timeline: this screen respects the
+blocks, it does not edit them. Every label is `pointer-events: none` — D-086
+records that one non-transparent decorative layer once swallowed every tap and
+made this tab look implemented while doing nothing.
+
+### D-093 · A prayer block is routed around, not asked about — **Requested, new rule**
+
+§5.3 makes prayer blocks hard for the scheduler and asks for a confirmation
+when the user places over one manually. The request: *"buat agenda tersebut
+untuk mundur ke sebelum atau maju ke setelah waktu shalat … selama slot masih
+tersedia, atau jika slot sudah tidak ada maka berikan peringatan."*
+
+A yes/no about breaking something the user does not want broken is the wrong
+first question. `avoidPrayer` (pure, `lib/scheduling/avoid.ts`) answers the
+useful one instead: keep the length, and either finish before the prayer starts
+or begin after it ends.
+
+- **"Slot masih tersedia" is defined as fitting whole inside one `FreeInterval`.**
+  That is not a convenience — it is what makes the offer trustworthy, since the
+  free-space map has already subtracted the availability window edges, other
+  agendas *with their buffers*, the other prayers, and Google busy time. A
+  shift can therefore never produce a second conflict.
+- **Both edges snap away from the prayer** (earlier floors, later ceils onto
+  the 5-minute grid). The grid must never be the reason a block clips the thing
+  it was moved to respect.
+- **Accepting a shift is a fresh placement**, not a variation of the old one:
+  it is re-checked against the window and the time blocks, and its pin is
+  recomputed for the new start rather than carried over from where the finger
+  let go.
+- **The agenda being moved is excluded from its own free-space map.** Otherwise
+  it blocks its own way out — the same edge D-069 found for reschedule.
+- With neither side available, §5.3's plain confirmation is all that remains,
+  which is the requested soft warning.
+
+### D-094 · Completion is a status, never a deletion — **Requested, replaces D-024**
+
+§5.9 says completing an agenda does not auto-complete its todo, and that
+completing a todo with future `planned` agendas asks *"Hapus 2 agenda yang
+belum jalan?"* — default yes. The request replaces both halves: *"maka tandai
+task maupun agendanya sebagai selesai. Jangan dihapus (sebagai log activity)."*
+
+**Agendas → todo.** When every live agenda of a todo is `done`, the todo is
+completed automatically, with an undo toast rather than the §5.9 prompt. When
+nothing is left unresolved there is no useful question to ask, and answering
+with a dialog the user has to dismiss is worse than answering reversibly.
+
+Three exclusions, each deliberate:
+
+1. a `partial` agenda is not "selesai" — the work was explicitly reported
+   unfinished, so the §5.9 prompt still owns that case;
+2. a `draft` neither blocks nor completes, because it was never a commitment;
+3. D-070's third clarification still stands — a todo whose `estimated_pomodoro`
+   exceeds what its agendas allocate has work nobody has scheduled, and neither
+   the automatic rule nor the prompt fires for it. Nothing happens, which is
+   correct: the answer is to schedule the rest, not to declare it done.
+
+**Todo → agendas.** `completeTodo` no longer soft-deletes anything. `planned`,
+`missed` and `partial` become `done`; a `draft` becomes `cancelled`, because
+§6.2 syncs `done` and a draft was never meant to reach Google. The rows survive
+as the record of what the days were for — which is precisely the history the
+derived counters in §4.2 are computed from, so deleting the unstarted ones was
+quietly corrupting the thing the app exists to keep honest.
+
+The prior statuses are returned as a `CompletionUndo` so the toast is a true
+inverse (D-022) rather than half of one. The §5.9 delete dialog and the
+`removeFutureAgendas` option are gone with it.
+
+### D-095 · A day viewport, not a piecewise axis — **Filled a gap**
+
+The day column is 2160 px for 24 hours while the seeded availability windows
+run 04:00–22:00, so roughly a fifth of every scroll is spent on hours nothing
+can be scheduled in.
+
+The obvious fix — a non-linear axis that collapses dead hours into a thin strip
+— was rejected. Every `topFor`, `heightFor`, `pxToMinutes` and `instantForPx`
+would have to become piecewise, and those are exactly the conversions the drag
+inverts; D-077 is a record of what that arithmetic costs when it is wrong.
+
+`dayViewport` moves the rendered *slice* instead. The column is still a linear
+2160 px; it is placed inside a fixed-height, `overflow: hidden` band and offset
+by `topPx`. Because the column element itself is offset, its bounding rect is
+too — so `e.clientY - rect.top` still yields full-column coordinates and *no*
+call site needed adjusting. Only the auto-scroll-to-current-hour effect, which
+computes a `scrollTop` rather than reading one, subtracts `topPx`.
+
+The band widens for anything placed outside a window, buffers included: §5.1
+explicitly allows such a placement, and a block the user cannot see is worse
+than a strip of empty hours. One band is computed across all visible days, or
+the three-day columns would not line up with each other or the hour gutter. A
+toggle restores the full 24 hours.
+
+The three-day date labels moved out of the day columns and above the band —
+`position: sticky` cannot survive an `overflow: hidden` ancestor.
+
+### D-096 · A destructive action may not hide inside a label — **Filled a gap (reverses part of D-058)**
+
+D-058 put "skip this occurrence" on the time block's name, reasoning that the
+action should sit next to the thing it affects. In use that meant tapping a
+block's name to read it silently skipped that day's occurrence: a destructive
+action wearing the costume of a piece of text, with nothing to suggest it was
+tappable at all.
+
+D-058's instinct was right and its target was wrong. The action stays on the
+band, but as its own 24 px `EyeOff` button with an `aria-label`; the name is a
+plain `pointer-events: none` label. The undo toast is unchanged, so the mistake
+was always recoverable — it was just never legible.
+
+### D-097 · Drag ergonomics: autoscroll, undo, and a verdict before release — **Requested**
+
+Three gaps that cost the same thing — certainty about where a block is going
+while it can still be changed.
+
+**Autoscroll.** A 2160 px column meant a block could not be dragged to a time
+that was off screen. Holding against the pane's edge now scrolls it, easing in
+over the last 56 px. The preview folds the pane's own movement into its delta
+(`clientY - originY + scrolled`), or the block would slide out from under a
+stationary finger by exactly the distance auto-scrolled. The loop stops when
+the pane's `scrollTop` stops changing, so a drag held at the top of the day
+does not creep.
+
+**Undo.** Deleting an agenda had a toast; moving one did not, even though a
+drag also releases an "immediately after" pin — so a mis-drag lost two things
+silently. Time, window flag and pin are captured before the write and restored
+together.
+
+**A live verdict.** The window, time-block and prayer answers arrived only
+after release, in a dialog. The block's ring now carries them while the finger
+is down, computed from the same predicates the drop runs so the two can never
+disagree. A warning outranks the green link ring: a link is a preference, a
+prayer block is not.
+
+### D-098 · Compaction is layout, not touch targets — **Requested**
+
+The request was for the creation surfaces to be denser (*"pill button akan
+membuang banyak space"*). The tempting reading — shrink every chip — would have
+traded M10's ≥44 px touch targets for a few pixels.
+
+What actually cost rows was *wrapping*: seven duration presets became two
+lines, and quick capture's six attribute chips another. Those rows are single
+and horizontally scrollable now, and `Chip` gained a `size="sm"` that buys its
+touch target back with an invisible 8 px band above and below. That band would
+overlap the next line in a wrapping row, so the small size is documented as
+belonging only to single-row contexts; every wrapping call site keeps the
+default.
+
+The calendar header lost two rows the same way — the full-width planning button
+became an icon beside the sync indicator, and the two-line totals became one.
