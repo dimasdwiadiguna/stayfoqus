@@ -199,3 +199,20 @@ export function minutesIntoLocalDay(
 }
 
 export { toZonedTime };
+
+/**
+ * A countdown, in clock style: `1:12:05` over an hour, `12:05` under one.
+ *
+ * Clock style rather than "1j 12m 5d" because the ticker refreshes every
+ * second: the digits have to stay in the same places, and a unit-suffixed form
+ * changes width as the numbers shrink. Pair it with `tabular-nums`.
+ */
+export function formatCountdown(ms: number): string {
+  const total = Math.max(0, Math.floor(ms / 1000));
+  const hours = Math.floor(total / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
+  const seconds = total % 60;
+  const mm = String(minutes).padStart(2, "0");
+  const ss = String(seconds).padStart(2, "0");
+  return hours > 0 ? `${hours}:${mm}:${ss}` : `${mm}:${ss}`;
+}

@@ -14,6 +14,7 @@ export * from "@/lib/scheduling/prayer";
 export * from "@/lib/scheduling/freespace";
 export * from "@/lib/scheduling/session";
 export * from "@/lib/scheduling/timeblocks";
+export * from "@/lib/scheduling/events";
 export * from "@/lib/scheduling/placement";
 export * from "@/lib/scheduling/avoid";
 export * from "@/lib/scheduling/allocate";

@@ -6,7 +6,14 @@ import * as React from "react";
 import { useSettings } from "@/hooks/use-settings";
 import { useAgendas, useTaskData } from "@/hooks/use-tasks";
 import { getDb } from "@/lib/db/client";
-import type { IsoDate, TimeBlock, TimeBlockException, UUID } from "@/lib/db/schema";
+import type {
+  CalendarEvent,
+  EventException,
+  IsoDate,
+  TimeBlock,
+  TimeBlockException,
+  UUID,
+} from "@/lib/db/schema";
 import {
   buildWorld,
   toSchedulable,
@@ -28,6 +35,22 @@ export function useTimeBlocks(): TimeBlock[] {
 
 export function useTimeBlockExceptions(): TimeBlockException[] {
   const rows = useLiveQuery(() => getDb().time_block_exceptions.toArray(), []);
+  return React.useMemo(
+    () => (rows ?? EMPTY).filter((e) => !e.deleted_at),
+    [rows],
+  );
+}
+
+export function useEvents(): CalendarEvent[] {
+  const rows = useLiveQuery(() => getDb().events.toArray(), []);
+  return React.useMemo(
+    () => (rows ?? EMPTY).filter((e) => !e.deleted_at),
+    [rows],
+  );
+}
+
+export function useEventExceptions(): EventException[] {
+  const rows = useLiveQuery(() => getDb().event_exceptions.toArray(), []);
   return React.useMemo(
     () => (rows ?? EMPTY).filter((e) => !e.deleted_at),
     [rows],
@@ -67,6 +90,8 @@ export function useSchedulingWorld(options: UseWorldOptions): SchedulingWorld {
   const windows = useAvailabilityWindows();
   const timeBlocks = useTimeBlocks();
   const exceptions = useTimeBlockExceptions();
+  const events = useEvents();
+  const eventExceptions = useEventExceptions();
   const gcalBusyEntries = useGcalBusy();
 
   const { from, to, excludeAgendaIds, includeDraftAgendas } = options;
@@ -79,6 +104,8 @@ export function useSchedulingWorld(options: UseWorldOptions): SchedulingWorld {
         agendas,
         timeBlocks,
         timeBlockExceptions: exceptions,
+        events,
+        eventExceptions,
         gcalBusyEntries,
         from,
         to,
@@ -91,6 +118,8 @@ export function useSchedulingWorld(options: UseWorldOptions): SchedulingWorld {
       agendas,
       timeBlocks,
       exceptions,
+      events,
+      eventExceptions,
       gcalBusyEntries,
       from,
       to,

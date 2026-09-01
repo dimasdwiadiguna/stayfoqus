@@ -160,6 +160,7 @@ export const id = {
     emptyDayHint: "Tekan lama di jam mana pun untuk menaruh agenda.",
     newAgenda: "Agenda baru",
     newTimeBlock: "Blok waktu baru",
+    newEvent: "Event baru",
     outsideWindowConfirm: "Di luar jam produktif kamu. Tetap jadwalkan?",
     overPrayerConfirm:
       "Waktunya bentrok dengan blok sholat. Tetap jadwalkan di sini?",
@@ -173,6 +174,8 @@ export const id = {
     prayerKeep: "Tetap di sini",
     overBusyConfirm:
       "Bentrok dengan acara di kalender lain. Tetap jadwalkan di sini?",
+    eventConflictConfirm: (name: string) =>
+      `Bentrok dengan "${name}". Tetap tempatkan di sini?`,
     timeBlockConfirm: (name: string) =>
       `Slot ini khusus ${name}. Tetap tempatkan di sini?`,
     scheduleAnyway: "Tetap jadwalkan",
@@ -185,11 +188,43 @@ export const id = {
     draft: "Draf",
   },
 
+  event: {
+    title: "Event",
+    newTitle: "Event baru",
+    fieldTitle: "Nama event",
+    fieldLocation: "Lokasi",
+    fieldLocationHint: "Opsional",
+    fieldDate: "Tanggal",
+    fieldStart: "Mulai",
+    fieldEnd: "Selesai",
+    fieldRepeat: "Pengulangan",
+    repeatOnce: "Sekali",
+    repeatWeekly: "Mingguan",
+    repeatDays: "Hari",
+    repeatUntil: "Berulang sampai",
+    repeats: "Berulang",
+    endsNextDay: "Selesai keesokan harinya",
+    created: "Event dibuat.",
+    deleted: "Event dihapus.",
+    deleteConfirmTitle: "Hapus event?",
+    deleteConfirmBody:
+      "Semua pengulangannya ikut hilang, dan waktunya kembali bisa dijadwalkan.",
+    skipToday: "Lewati hari ini",
+    skipped: "Event dilewati hari ini.",
+    unskipped: "Event dikembalikan.",
+    skippedBadge: "Dilewati",
+    tapToRestore: "Ketuk untuk mengembalikan.",
+    createHint:
+      "Event memblok waktunya supaya tidak diisi todo. Buat dulu, lalu isi nama, lokasi, dan pengulangannya.",
+    pickKind: "Yang mau ditaruh",
+    kindAgenda: "Agenda",
+    kindEvent: "Event",
+  },
+
   ticker: {
     label: "Aktivitas sekarang dan berikutnya",
     free: "Luang",
     nothingNext: "Tidak ada jadwal lagi",
-    soon: "sebentar lagi",
     commuteTo: (title: string) => `Berangkat ke ${title}`,
     commuteFrom: (title: string) => `Perjalanan dari ${title}`,
   },
@@ -220,6 +255,10 @@ export const id = {
       cancelled: "Dibatalkan",
     },
     scheduleSheetTitle: "Jadwalkan",
+    moveSheetTitle: "Pindahkan agenda",
+    fieldSchedule: "Jadwal",
+    changeSchedule: "Ubah jadwal",
+    pinnedSchedule: "Jamnya mengikuti agenda sebelumnya.",
     tabList: "Daftar",
     tabCalendar: "Kalender",
     tabCustom: "Custom",

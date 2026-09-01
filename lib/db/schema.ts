@@ -182,6 +182,50 @@ export interface TimeBlockException extends BaseRow, LocalMeta {
 }
 
 /* ------------------------------------------------------------------ */
+/* events                                                              */
+/* ------------------------------------------------------------------ */
+
+export type EventRecurrence = "once" | "weekly";
+
+/**
+ * A commitment that is not a todo: a meeting, a class, an appointment.
+ *
+ * Not in the brief, which assumes everything on the calendar descends from a
+ * todo (an agenda) or from another calendar (`gcal_busy_cache`). Added on
+ * request as the deliberate manual stand-in for the Google Calendar sync, so
+ * hours that are genuinely spoken for stop being handed out by the allocator.
+ *
+ * Shaped after `time_blocks` — wall-clock times plus a recurrence — rather than
+ * absolute instants, so "every Tuesday at 09:00" stays 09:00 in the user's own
+ * timezone, and so the expansion and the per-date exceptions can reuse a
+ * pattern that is already tested.
+ */
+export interface CalendarEvent extends BaseRow, LocalMeta {
+  title: string;
+  location: string | null;
+  notes: string | null;
+  start_time: HHmm;
+  /** At or before `start_time` means the event ends on the following day. */
+  end_time: HHmm;
+  recurrence: EventRecurrence;
+  days_of_week: DayOfWeek[];
+  specific_date: IsoDate | null;
+  end_date: IsoDate | null;
+  buffer_before_min: number;
+  buffer_before_type: BufferType;
+  buffer_after_min: number;
+  buffer_after_type: BufferType;
+  enabled: boolean;
+}
+
+/** §4.7's shape, for events: skip a single occurrence of a repeat. */
+export interface EventException extends BaseRow, LocalMeta {
+  event_id: UUID;
+  date: IsoDate;
+  action: "skipped";
+}
+
+/* ------------------------------------------------------------------ */
 /* settings (single row)                                               */
 /* ------------------------------------------------------------------ */
 
@@ -245,6 +289,8 @@ export type OutboxEntity =
   | "settings"
   | "time_block"
   | "time_block_exception"
+  | "event"
+  | "event_exception"
   | "availability_window"
   | "gcal";
 
@@ -310,6 +356,8 @@ export const SYNCED_TABLES = [
   "availability_windows",
   "time_blocks",
   "time_block_exceptions",
+  "events",
+  "event_exceptions",
   "settings",
 ] as const;
 
@@ -330,6 +378,8 @@ export const TABLE_TO_ENTITY: Record<SyncedTableName, OutboxEntity> = {
   availability_windows: "availability_window",
   time_blocks: "time_block",
   time_block_exceptions: "time_block_exception",
+  events: "event",
+  event_exceptions: "event_exception",
   settings: "settings",
 };
 
@@ -342,6 +392,8 @@ export interface SyncedRowMap {
   availability_windows: AvailabilityWindow;
   time_blocks: TimeBlock;
   time_block_exceptions: TimeBlockException;
+  events: CalendarEvent;
+  event_exceptions: EventException;
   settings: Settings;
 }
 

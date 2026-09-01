@@ -49,13 +49,15 @@ describe("§5.5 Step 1 — free-space map", () => {
       agendaBusy("11:00", "12:00", sw(15), cm(10)),
     ]);
     expect(free[0]!.after).toEqual({
-      kind: "agenda",
-      agendaId: "a1",
+      kind: "buffered",
+      owner: "agenda",
+      ownerId: "a1",
       buffer: sw(15),
     });
     expect(free[1]!.before).toEqual({
-      kind: "agenda",
-      agendaId: "a1",
+      kind: "buffered",
+      owner: "agenda",
+      ownerId: "a1",
       buffer: cm(10),
     });
   });
@@ -154,8 +156,9 @@ describe("occupy — updating the map after a placement", () => {
     const next = occupy(free, placement("10:00", "10:55"));
     expect(next.map(fmt)).toEqual(["09:00–10:00", "10:55–17:00"]);
     expect(next[0]!.after).toEqual({
-      kind: "agenda",
-      agendaId: "new",
+      kind: "buffered",
+      owner: "agenda",
+      ownerId: "new",
       buffer: sw(0),
     });
   });
@@ -167,8 +170,9 @@ describe("occupy — updating the map after a placement", () => {
     const next = occupy(free, placement("10:00", "10:55", sw(15), sw(10)));
     expect(next.map(fmt)).toEqual(["09:00–09:45", "11:05–17:00"]);
     expect(next[1]!.before).toEqual({
-      kind: "agenda",
-      agendaId: "new",
+      kind: "buffered",
+      owner: "agenda",
+      ownerId: "new",
       buffer: sw(10),
     });
   });

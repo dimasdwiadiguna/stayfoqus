@@ -2,11 +2,13 @@
 
 import * as React from "react";
 
-import { useNow } from "@/hooks/use-now";
+import { useTick } from "@/hooks/use-now";
 import { useSettings } from "@/hooks/use-settings";
+import { useEventExceptions, useEvents } from "@/hooks/use-scheduling";
 import { useAgendas } from "@/hooks/use-tasks";
 import {
   buildActivities,
+  expandEvents,
   nowAndNext,
   resolvePrayerBlocks,
   type NowNext,
@@ -30,7 +32,16 @@ import { addDays, localDate } from "@/lib/time";
 export function useNowNext(): NowNext & { now: number | null } {
   const settings = useSettings();
   const agendas = useAgendas();
-  const now = useNow();
+  const rawEvents = useEvents();
+  const eventExceptions = useEventExceptions();
+  /**
+   * One second, not thirty (D-107).
+   *
+   * The countdown shows seconds, and the same clock has to pick `current` and
+   * `next` — driving only the digits from it would leave the countdown sitting
+   * at zero until the 30-second clock caught up and the next activity arrived.
+   */
+  const now = useTick(1000);
 
   const today = now === null ? null : localDate(new Date(now), settings.timezone);
 
@@ -58,9 +69,20 @@ export function useNowNext(): NowNext & { now: number | null } {
     settings.friday_dhuhr_duration_min,
   ]);
 
+  const events = React.useMemo(() => {
+    if (!today) return [];
+    return expandEvents(
+      rawEvents,
+      eventExceptions,
+      today,
+      addDays(today, 1),
+      settings.timezone,
+    );
+  }, [today, rawEvents, eventExceptions, settings.timezone]);
+
   const activities = React.useMemo(
-    () => buildActivities({ agendas, prayers }),
-    [agendas, prayers],
+    () => buildActivities({ agendas, events, prayers }),
+    [agendas, events, prayers],
   );
 
   return React.useMemo(

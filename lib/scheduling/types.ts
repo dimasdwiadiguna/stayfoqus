@@ -34,8 +34,15 @@ export type EdgeKind =
   | { kind: "window" }
   /** A prayer block or an external busy block: hard, and carries no buffer. */
   | { kind: "obstacle"; obstacle: ObstacleKind }
-  /** Another agenda, whose facing buffer is already carved out of the map. */
-  | { kind: "agenda"; buffer: BufferSide; agendaId: UUID };
+  /**
+   * Another block that owns buffers — an agenda, or a manually entered event.
+   * Its facing buffer is already carved out of the map, so a candidate owes
+   * only the shortfall (§5.2, D-028).
+   */
+  | { kind: "buffered"; buffer: BufferSide; owner: BufferedOwner; ownerId: UUID };
+
+/** What a buffered edge belongs to. Both compose by the same §5.2 rule. */
+export type BufferedOwner = "agenda" | "event";
 
 export type ObstacleKind = "prayer" | "gcal_busy";
 
@@ -48,11 +55,13 @@ export interface FreeInterval extends Interval {
 
 /** An interval that blocks scheduling, with enough context to explain itself. */
 export interface BusyInterval extends Interval {
-  source: "agenda" | "prayer" | "gcal_busy";
-  /** For agendas: the core interval without buffers. */
+  source: "agenda" | "event" | "prayer" | "gcal_busy";
+  /** For agendas and events: the core interval, without the buffers. */
   core?: Interval;
   bufferBefore?: BufferSide;
   bufferAfter?: BufferSide;
+  /** The agenda or event this came from, for a buffered edge. */
+  ownerId?: UUID;
   agendaId?: UUID;
   label?: string;
 }

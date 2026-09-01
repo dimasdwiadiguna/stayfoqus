@@ -1,6 +1,8 @@
 import type {
   Agenda,
   AvailabilityWindow,
+  CalendarEvent,
+  EventException,
   IsoDate,
   Settings,
   Todo,
@@ -8,6 +10,7 @@ import type {
 } from "@/lib/db/schema";
 import { resolveWindows } from "@/lib/scheduling/availability";
 import { buildFreeSpace } from "@/lib/scheduling/freespace";
+import { activeEvents, expandEvents, type EventInstance } from "@/lib/scheduling/events";
 import { resolvePrayerBlocks } from "@/lib/scheduling/prayer";
 import { expandTimeBlocks } from "@/lib/scheduling/timeblocks";
 import type {
@@ -106,6 +109,28 @@ export function agendaBusy(
   return out;
 }
 
+/**
+ * An event occupies its core interval *plus* its buffers, exactly as an agenda
+ * does — §5.2 is a rule about two buffered things meeting, and an event's
+ * commute buffer is as real as an agenda's. Skipped occurrences reserve
+ * nothing.
+ */
+export function eventBusy(instances: readonly EventInstance[]): BusyInterval[] {
+  return activeEvents(instances).map((event) => {
+    const core = { start: event.start, end: event.end };
+    return {
+      source: "event" as const,
+      ownerId: event.eventId,
+      core,
+      start: core.start - event.bufferBefore.min * MINUTE,
+      end: core.end + event.bufferAfter.min * MINUTE,
+      bufferBefore: event.bufferBefore,
+      bufferAfter: event.bufferAfter,
+      label: event.title,
+    };
+  });
+}
+
 export function prayerBusy(blocks: readonly PrayerBlock[]): BusyInterval[] {
   return blocks.map((b) => ({
     source: "prayer" as const,
@@ -151,6 +176,7 @@ export interface SchedulingWorld {
   windows: WindowInstance[];
   prayers: PrayerBlock[];
   timeBlocks: TimeBlockInstance[];
+  events: EventInstance[];
   busy: BusyInterval[];
   free: FreeInterval[];
   shape: SessionShape;
@@ -163,6 +189,8 @@ export interface BuildWorldInput {
   agendas: readonly Agenda[];
   timeBlocks: readonly import("@/lib/db/schema").TimeBlock[];
   timeBlockExceptions: readonly import("@/lib/db/schema").TimeBlockException[];
+  events: readonly CalendarEvent[];
+  eventExceptions: readonly EventException[];
   gcalBusyEntries: readonly { start_at: string; end_at: string; summary: string | null }[];
   from: IsoDate;
   to: IsoDate;
@@ -207,11 +235,20 @@ export function buildWorld(input: BuildWorldInput): SchedulingWorld {
     timezone,
   );
 
+  const events = expandEvents(
+    input.events,
+    input.eventExceptions,
+    from,
+    to,
+    timezone,
+  );
+
   const busy = [
     ...agendaBusy(input.agendas, {
       includeDrafts: input.includeDraftAgendas,
       excludeIds: input.excludeAgendaIds,
     }),
+    ...eventBusy(events),
     ...prayerBusy(prayers),
     ...gcalBusy(input.gcalBusyEntries),
   ];
@@ -224,6 +261,7 @@ export function buildWorld(input: BuildWorldInput): SchedulingWorld {
     windows,
     prayers,
     timeBlocks,
+    events,
     busy,
     free,
     shape: sessionShapeOf(settings),

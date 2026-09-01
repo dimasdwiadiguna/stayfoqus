@@ -42,10 +42,11 @@ export function requiredGapMin(after: BufferSide, before: BufferSide): number {
  *   edge is another agenda → max(0, required_gap − buffer already reserved)
  *   edge is the window     → 0; §5.2 lets a buffer spill past the window edge
  *   edge is a prayer block
- *     or an external busy  → 0; §5.2 defines the rule between *agendas* only
+ *     or an external busy  → 0; §5.2 defines the rule between *buffered*
+ *     blocks only — an agenda or an event, never a prayer or a window edge
  */
 export function edgePaddingMin(edge: EdgeKind, own: BufferSide): number {
-  if (edge.kind !== "agenda") return 0;
+  if (edge.kind !== "buffered") return 0;
   // `edge.buffer` is the neighbour's side that faces this interval and `own` is
   // the candidate's side that faces the neighbour; the rule is symmetric, so
   // this holds whether the neighbour precedes or follows.

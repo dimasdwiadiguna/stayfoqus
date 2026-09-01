@@ -29,7 +29,7 @@ const AUTOSCROLL_EDGE_PX = 56;
 const AUTOSCROLL_MAX_PX = 12;
 
 /** What the day column thinks of the placement currently under the finger. */
-export type DropVerdict = "ok" | "outside" | "time-block" | "prayer";
+export type DropVerdict = "ok" | "outside" | "time-block" | "prayer" | "event";
 
 /**
  * One agenda on the timeline.
@@ -373,6 +373,7 @@ export function AgendaBlock({
           drag?.verdict === "outside" && "ring-warning",
           drag?.verdict === "time-block" && "ring-warning",
           drag?.verdict === "prayer" && "ring-prayer",
+          drag?.verdict === "event" && "ring-event",
         )}
         // The block owns the gesture; scrolling is forwarded by hand in
         // `beginDrag` so a swipe starting here still moves the timeline.

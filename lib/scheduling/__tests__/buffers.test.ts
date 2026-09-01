@@ -51,8 +51,9 @@ describe("§5.2 required_gap — the rule in general", () => {
 
 describe("edge padding — what a candidate still owes", () => {
   const agendaEdge = (buffer: BufferSide): EdgeKind => ({
-    kind: "agenda",
-    agendaId: "a1",
+    kind: "buffered",
+    owner: "agenda",
+    ownerId: "a1",
     buffer,
   });
 

@@ -2,6 +2,7 @@
 
 import {
   CalendarClock,
+  CalendarDays,
   Car,
   ChevronRight,
   CloudSun,
@@ -19,7 +20,7 @@ import { useAgendas, useTodos } from "@/hooks/use-tasks";
 import type { Agenda, PrayerKey, Todo, UUID } from "@/lib/db/schema";
 import { id as t } from "@/lib/i18n/id";
 import type { Activity } from "@/lib/scheduling";
-import { formatDuration } from "@/lib/time";
+import { formatCountdown } from "@/lib/time";
 import { cn } from "@/lib/utils";
 
 /** Below this, the countdown stops being information and becomes a warning. */
@@ -43,6 +44,12 @@ const PRAYER_ICONS: Record<PrayerKey, LucideIcon> = {
  * The icon does the labelling so the words do not have to: on a 390px screen
  * there is room for two truncated titles and a countdown, and nothing else. The
  * countdown never truncates — it is the only part that changes.
+ *
+ * The strip is black in **both** themes (D-107). Its job is to be noticed, and
+ * in the light theme a surface-coloured bar simply merged into the header under
+ * it. Carrying `dark` re-resolves every token inside — the prayer teal, the
+ * commute bronze, the event rose, the warning amber — to the palette that was
+ * designed to sit on black, so nothing has to be picked twice.
  */
 export function NowTicker() {
   const { current, next, now } = useNowNext();
@@ -53,14 +60,14 @@ export function NowTicker() {
   // empty row on a fresh install.
   if (!current && !next) return null;
 
-  const untilMin = next && now !== null ? (next.start - now) / 60_000 : null;
-  const soon = untilMin !== null && untilMin <= SOON_MIN;
+  const untilMs = next && now !== null ? Math.max(0, next.start - now) : null;
+  const soon = untilMs !== null && untilMs <= SOON_MIN * 60_000;
 
   return (
     <Link
       href="/calendar"
       aria-label={t.ticker.label}
-      className="shrink-0 border-b border-border bg-surface/95 backdrop-blur"
+      className="dark shrink-0 border-b border-border bg-bg text-fg"
     >
       <div className="mx-auto flex max-w-md items-center gap-1.5 px-4 py-1.5 text-[12px]">
         {current ? (
@@ -70,7 +77,7 @@ export function NowTicker() {
             muted
           />
         ) : (
-          <span className="flex min-w-0 flex-1 items-center gap-1 text-fg-subtle">
+          <span className="flex min-w-0 flex-1 items-center gap-1 text-fg-muted">
             <Coffee className="size-3.5 shrink-0" aria-hidden />
             <span className="truncate">{t.ticker.free}</span>
           </span>
@@ -84,15 +91,18 @@ export function NowTicker() {
         {next ? (
           <>
             <Slot activity={next} label={describeActivity(next, agendas, todos)} />
+            {/*
+              Always pulsing, because a countdown that sits still is just a
+              number; the colour is what escalates under five minutes.
+              `prefers-reduced-motion` is honoured globally in globals.css.
+            */}
             <span
               className={cn(
-                "shrink-0 font-semibold tabular-nums",
-                soon ? "animate-pulse text-warning" : "text-fg-muted",
+                "shrink-0 animate-pulse text-[13px] font-semibold tabular-nums",
+                soon ? "text-warning" : "text-fg",
               )}
             >
-              {untilMin !== null && untilMin < 1
-                ? t.ticker.soon
-                : formatDuration(untilMin ?? 0)}
+              {formatCountdown(untilMs ?? 0)}
             </span>
           </>
         ) : (
@@ -120,7 +130,9 @@ function Slot({
       ? PRAYER_ICONS[activity.prayerKey ?? "dhuhr"]
       : activity.kind === "commute"
         ? Car
-        : CalendarClock;
+        : activity.kind === "event"
+          ? CalendarDays
+          : CalendarClock;
 
   return (
     <span
@@ -132,9 +144,12 @@ function Slot({
             ? // The same bronze as the commute buffer band, so the strip and
               // the timeline speak one language (D-082).
               "text-buffer-commute"
-            : muted
-              ? "text-fg-muted"
-              : "text-fg",
+            : activity.kind === "event"
+              ? // And the same rose the event block wears.
+                "text-event"
+              : muted
+                ? "text-fg-muted"
+                : "text-fg",
       )}
     >
       <Icon className="size-3.5 shrink-0" aria-hidden />
@@ -156,8 +171,10 @@ function describeActivity(
     return t.settings.prayerNames[activity.prayerKey ?? "dhuhr"];
   }
 
-  const title = agendaTitle(activity.agendaId, agendas, todos);
-  if (activity.kind === "agenda") return title;
+  // An event owns its title; an agenda borrows one from its todo.
+  const title =
+    activity.title ?? agendaTitle(activity.agendaId, agendas, todos);
+  if (activity.kind === "agenda" || activity.kind === "event") return title;
   return activity.side === "before"
     ? t.ticker.commuteTo(title)
     : t.ticker.commuteFrom(title);

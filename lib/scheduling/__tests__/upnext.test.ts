@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { buildActivities, nowAndNext } from "@/lib/scheduling/upnext";
+import type { EventInstance } from "@/lib/scheduling/events";
 import type { PrayerBlock } from "@/lib/scheduling/types";
 import { makeAgenda } from "@/lib/todos/__tests__/fixtures";
 
@@ -39,6 +40,7 @@ describe("what counts as an activity", () => {
   it("carries agendas and prayer blocks, in time order", () => {
     const activities = buildActivities({
       agendas: [ag("b", "14:00", "15:00"), ag("a", "09:00", "10:00")],
+      events: [],
       prayers: [prayer("dhuhr", "11:43", "12:03")],
     });
 
@@ -56,6 +58,7 @@ describe("what counts as an activity", () => {
           buffer_after_type: "commute",
         }),
       ],
+      events: [],
       prayers: [],
     });
 
@@ -78,6 +81,7 @@ describe("what counts as an activity", () => {
           buffer_after_type: "switch",
         }),
       ],
+      events: [],
       prayers: [],
     });
 
@@ -93,6 +97,7 @@ describe("what counts as an activity", () => {
           buffer_before_type: "commute",
         }),
       ],
+      events: [],
       prayers: [],
     });
     expect(activities).toHaveLength(1);
@@ -107,6 +112,7 @@ describe("what counts as an activity", () => {
         ag("gone", "12:00", "13:00", { deleted_at: "2026-08-26T00:00:00.000Z" }),
         ag("real", "13:00", "14:00", { status: "planned" }),
       ],
+      events: [],
       prayers: [],
     });
 
@@ -119,9 +125,87 @@ describe("what counts as an activity", () => {
         ag("m", "09:00", "10:00", { status: "missed" }),
         ag("p", "10:00", "11:00", { status: "partial" }),
       ],
+      events: [],
       prayers: [],
     });
     expect(activities).toHaveLength(2);
+  });
+});
+
+/** An event occurrence, with no buffers unless a test asks for one. */
+function evt(
+  from: string,
+  to: string,
+  extra: Partial<EventInstance> = {},
+): EventInstance {
+  return {
+    date: DATE,
+    eventId: "e1",
+    title: "Rapat klien",
+    location: null,
+    bufferBefore: { min: 0, type: "switch" },
+    bufferAfter: { min: 0, type: "switch" },
+    skipped: false,
+    start: T(from),
+    end: T(to),
+    ...extra,
+  };
+}
+
+describe("events in the stream", () => {
+  it("carries an event, with its own title", () => {
+    const activities = buildActivities({
+      agendas: [],
+      events: [evt("13:00", "15:00")],
+      prayers: [],
+    });
+    expect(activities.map((a) => a.kind)).toEqual(["event"]);
+    expect(activities[0]!.title).toBe("Rapat klien");
+    expect(activities[0]!.eventId).toBe("e1");
+  });
+
+  it("applies the buffer rule to an event exactly as to an agenda", () => {
+    const activities = buildActivities({
+      agendas: [],
+      events: [
+        evt("13:00", "15:00", {
+          bufferBefore: { min: 30, type: "commute" },
+          bufferAfter: { min: 15, type: "switch" },
+        }),
+      ],
+      prayers: [],
+    });
+    // The commute out is a journey; the switch back is not an activity.
+    expect(activities.map((a) => [a.kind, a.side])).toEqual([
+      ["commute", "before"],
+      ["event", undefined],
+    ]);
+    expect(activities[0]!.start).toBe(T("12:30"));
+  });
+
+  it("leaves out a skipped occurrence and its commute", () => {
+    const activities = buildActivities({
+      agendas: [],
+      events: [
+        evt("13:00", "15:00", {
+          skipped: true,
+          bufferBefore: { min: 30, type: "commute" },
+        }),
+      ],
+      prayers: [],
+    });
+    expect(activities).toHaveLength(0);
+  });
+
+  it("takes its turn as current and next alongside agendas", () => {
+    const activities = buildActivities({
+      agendas: [ag("a", "09:00", "10:00")],
+      events: [evt("13:00", "15:00")],
+      prayers: [],
+    });
+
+    expect(nowAndNext(activities, T("09:30")).next?.kind).toBe("event");
+    expect(nowAndNext(activities, T("14:00")).current?.title).toBe("Rapat klien");
   });
 });
 
@@ -135,6 +219,7 @@ describe("what is running, and what comes next", () => {
         }),
         ag("b", "14:00", "15:00"),
       ],
+      events: [],
       prayers: [prayer("dhuhr", "11:43", "12:03")],
     });
 
@@ -174,11 +259,11 @@ describe("what is running, and what comes next", () => {
     const second = ag("zzz", "09:00", "10:00");
 
     const forwards = nowAndNext(
-      buildActivities({ agendas: [first, second], prayers: [] }),
+      buildActivities({ agendas: [first, second], events: [], prayers: [] }),
       T("08:00"),
     );
     const backwards = nowAndNext(
-      buildActivities({ agendas: [second, first], prayers: [] }),
+      buildActivities({ agendas: [second, first], events: [], prayers: [] }),
       T("08:00"),
     );
 
@@ -189,6 +274,7 @@ describe("what is running, and what comes next", () => {
   it("counts an activity as over the instant it ends", () => {
     const activities = buildActivities({
       agendas: [ag("a", "09:00", "10:00")],
+      events: [],
       prayers: [],
     });
     expect(nowAndNext(activities, T("10:00")).current).toBeNull();

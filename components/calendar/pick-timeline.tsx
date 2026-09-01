@@ -20,6 +20,7 @@ import {
 } from "@/lib/calendar/geometry";
 import type {
   BufferSide,
+  EventInstance,
   PrayerBlock,
   TimeBlockInstance,
   WindowInstance,
@@ -57,6 +58,7 @@ export function PickTimeline({
   prayers,
   timeBlocks,
   agendas,
+  events,
   todosById,
   busy,
   durationMin,
@@ -71,6 +73,8 @@ export function PickTimeline({
   prayers: readonly PrayerBlock[];
   timeBlocks: readonly TimeBlockInstance[];
   agendas: readonly Agenda[];
+  /** Commitments that are not todos — just as much in the way (D-105). */
+  events: readonly EventInstance[];
   /** Titles for the agendas already on the day, so the picker is not blind. */
   todosById: Map<UUID, Todo>;
   busy: readonly { start: number; end: number; label?: string }[];
@@ -171,6 +175,7 @@ export function PickTimeline({
               prayers={prayers.filter((p) => p.date === date)}
               timeBlocks={timeBlocks.filter((b) => b.date === date)}
               agendas={agendas}
+              events={events.filter((e) => e.date === date && !e.skipped)}
               todosById={todosById}
               busy={busy}
               draft={draft?.date === date ? draft : null}
@@ -242,6 +247,7 @@ function PickDay({
   prayers,
   timeBlocks,
   agendas,
+  events,
   todosById,
   busy,
   draft,
@@ -257,6 +263,7 @@ function PickDay({
   prayers: readonly PrayerBlock[];
   timeBlocks: readonly TimeBlockInstance[];
   agendas: readonly Agenda[];
+  events: readonly EventInstance[];
   todosById: Map<UUID, Todo>;
   busy: readonly { start: number; end: number; label?: string }[];
   draft: PickDraft | null;
@@ -415,6 +422,48 @@ function PickDay({
             {localTime(new Date(p.adhan), timezone)}
           </span>
         </div>
+      ))}
+
+      {/* Events, read-only: an hour already spoken for is exactly what the new
+          block has to fit around. */}
+      {events.filter(within).map((event) => (
+        <React.Fragment key={`event-${event.eventId}-${event.start}`}>
+          <BufferBand
+            type={event.bufferBefore.type}
+            minutes={event.bufferBefore.min}
+            side="before"
+            top={topFor(event.start, date, timezone) - minutesToPx(event.bufferBefore.min)}
+            height={minutesToPx(event.bufferBefore.min)}
+            left="2px"
+            width="calc(100% - 4px)"
+          />
+          <BufferBand
+            type={event.bufferAfter.type}
+            minutes={event.bufferAfter.min}
+            side="after"
+            top={topFor(event.end, date, timezone)}
+            height={minutesToPx(event.bufferAfter.min)}
+            left="2px"
+            width="calc(100% - 4px)"
+          />
+          <div
+            aria-hidden
+            className="pointer-events-none absolute flex items-baseline gap-1 overflow-hidden rounded-sm border border-event/40 border-l-[3px] border-l-event bg-event/15 px-1 text-[9px] leading-tight"
+            style={{
+              top: topFor(event.start, date, timezone),
+              height: heightFor(event.start, event.end),
+              left: 2,
+              right: 2,
+            }}
+          >
+            <span className="shrink-0 tabular-nums text-fg-muted">
+              {localTime(new Date(event.start), timezone)}
+            </span>
+            <span className="min-w-0 flex-1 truncate font-medium text-fg">
+              {event.title}
+            </span>
+          </div>
+        </React.Fragment>
       ))}
 
       {/* Existing agendas, read-only, with their buffers — the things the new
