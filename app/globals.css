@@ -165,6 +165,19 @@
   padding-top: env(safe-area-inset-top, 0px);
 }
 
+/*
+ * Installed to the home screen, iOS reports `100dvh` one `safe-area-inset-top`
+ * short of the area its web view actually covers — measured on an iPhone 11:
+ * a 896 pt screen, insets of 48 and 34, and a shell that stopped at 848 with
+ * the page background showing through beneath the tab bar.
+ *
+ * There the initial containing block is the honest number (`html`/`body` are
+ * `h-full`), so the shell is sized against that instead. In a browser tab
+ * `dvh` stays correct and stays in use: Safari's toolbars really do change how
+ * much is visible, which is the whole reason the unit exists.
+ */
+@custom-variant standalone (@media (display-mode: standalone));
+
 @utility no-scrollbar {
   scrollbar-width: none;
   &::-webkit-scrollbar {
