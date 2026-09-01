@@ -1426,3 +1426,107 @@ swatch and the icon and drops the word, with the word moved to `title` and
 thin line of their own for the same reason — squeezed onto that row they
 truncated, and the figure that got cut was the free hours, the one of the three
 that actually drives a decision.
+
+---
+
+## Waktu sholat yang bisa dipersiapkan, dan ticker "sekarang / berikutnya"
+
+### D-102 · The adhan sits in the middle of its block — **Requested, changes §5.3**
+
+§5.3: "Five daily blocks, default 20 minutes each, **starting at the prayer
+time**." Read literally — and it was — the block is pure prayer time. There is
+not one minute in it to stop what you are doing, walk, or make wudhu, so the
+first thing every prayer costs is time the scheduler had already given to
+something else.
+
+The block is centred on the adhan now, so its first half *is* the preparation.
+
+**`duration_min` still means the whole block.** This was the choice worth
+making, and it went the user's way rather than mine:
+
+- the day's capacity does not move by a single minute — 20 minutes is still 20
+  minutes, now 10 either side, so no existing plan is invalidated;
+- the number in Settings still equals the length of the block it draws, which
+  keeps the label honest.
+
+The cost is real and accepted: the time *after* the adhan halves. That is the
+user's own number to raise, and the Settings row now shows the range each
+duration produces (`11:52 · 11:42–12:02`) right where it is edited, so the
+trade is visible at the moment of choosing rather than discovered on the
+calendar.
+
+**Friday Dhuhr follows the same rule**, 45 minutes either side of the call
+rather than 90 after it. An exception would have to be remembered by every
+future reader of `resolvePrayerBlocks`, and leaving before the adhan is what
+Jumu'ah actually looks like.
+
+**`PrayerBlock.adhan` exists because centring took something away.** A block
+that starts at the call to prayer tells you when the call is; one centred on it
+does not. So the instant is stored, and both timelines draw it as a solid 2 px
+rule across the band with the time on it — deliberately as heavy as the
+now-line, because after this change it is the only thing on screen that answers
+the question.
+
+Two details found by measuring in the browser rather than by reading the code:
+
+- the marker's wrapper was given a height and its contents centred, which put
+  the rule half a label *below* the adhan — three minutes at 1.5 px/min, on the
+  one mark whose entire job is precision. The wrapper is zero-height and
+  anchored on the instant itself now.
+- the prayer's name sat in the vertical middle of the band, so the new rule cut
+  straight through it and read as a strikethrough. The name is pinned to the
+  band's top edge — the start of the time to prepare, which is where it belongs
+  anyway.
+
+Everything downstream picked the change up without being touched, which is what
+the pure module is for: `prayerBusy`, `buildFreeSpace` and `avoidPrayer` all
+read the block's bounds, so D-093's shift dialog now offers 11:15–11:40 and
+12:05–12:30 where it used to offer 11:25–11:50 and 12:15–12:40.
+
+### D-103 · The ticker shows activities, not calendar blocks — **Requested**
+
+A strip above every screen: what is running, what is next, how long until it.
+The interesting part is not the strip, it is the definition, so the rule lives
+in `lib/scheduling/upnext.ts` with 13 tests rather than inside the component.
+
+**A `commute` buffer is an activity; a `switch` buffer never is.** Requested in
+exactly those terms, and it falls straight out of what §5.2 already says the
+two types mean: travelling somewhere is a thing you are doing, and the one you
+most need warning about; a mental reset is time for the head to catch up, and
+the agenda on either side of it already stands for it. The two types compose
+differently precisely because they are different in kind — this is the same
+distinction, one screen further on.
+
+**`draft`, `cancelled` and `done` agendas are left out.** A draft was never a
+commitment and a cancelled one is not happening. `done` matters more than it
+looks: D-084 creates a retroactive agenda that *ends at the current instant*, so
+without this rule the ticker would announce work the user had just finished as
+what they are doing now — worse than saying nothing.
+
+**`current` is whichever activity started most recently.** Overlaps are routine
+here: a prayer block lands inside an agenda placed over it (§5.1 allows that), a
+commute buffer abuts the agenda it belongs to. The most recently started one is
+the thing just stepped into, and the one whose ending is the next transition.
+Ties fall through to the earlier end and then to the key, so two devices showing
+the same day cannot disagree — the determinism D-062 established.
+
+**The hook deliberately does not use `useSchedulingWorld`**, even though it is
+the obvious reuse. That hook mounts five live queries and resolves availability
+windows, time blocks and Google busy time, none of which the ticker reads — and
+unlike a screen, this one is mounted for the life of the app. It takes the two
+live queries it needs and calls the same `resolvePrayerBlocks` the calendar
+does, so the prayer times still cannot diverge.
+
+Two smaller choices:
+
+- **The countdown rides `useNow()`** (30 s, D-066) rather than starting a second
+  timer for itself. The display is minute-granular, so the worst case is showing
+  "5m" when 4m31s remain, which is not worth a second clock in a PWA whose
+  battery cost the user notices.
+- **With nothing to say, the strip does not render.** Turning every prayer off
+  on an empty install leaves no row at all — a permanent empty bar would be the
+  opposite of "ringkas dan hemat tempat".
+
+The safe-area inset moved from each screen's header to the app shell as a
+consequence: whatever comes first inside it — the ticker, or a header on the day
+the ticker has nothing to say — has to clear the notch exactly once.
