@@ -18,4 +18,5 @@ export * from "@/lib/scheduling/placement";
 export * from "@/lib/scheduling/avoid";
 export * from "@/lib/scheduling/allocate";
 export * from "@/lib/scheduling/chain";
+export * from "@/lib/scheduling/upnext";
 export * from "@/lib/scheduling/context";

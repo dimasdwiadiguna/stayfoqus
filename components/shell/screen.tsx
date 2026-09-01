@@ -29,7 +29,9 @@ export function Screen({
   return (
     <div className={cn("flex min-h-0 flex-1 flex-col", className)}>
       {header ? (
-        <header className="safe-top sticky top-0 z-20 shrink-0 border-b border-border bg-bg/95 backdrop-blur">
+        // The safe-area inset lives on the app shell now, since the ticker sits
+        // above every header; applying it here as well would double it.
+        <header className="sticky top-0 z-20 shrink-0 border-b border-border bg-bg/95 backdrop-blur">
           <div className="mx-auto max-w-md px-4 py-2.5">{header}</div>
         </header>
       ) : null}

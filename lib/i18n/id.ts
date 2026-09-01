@@ -185,6 +185,15 @@ export const id = {
     draft: "Draf",
   },
 
+  ticker: {
+    label: "Aktivitas sekarang dan berikutnya",
+    free: "Luang",
+    nothingNext: "Tidak ada jadwal lagi",
+    soon: "sebentar lagi",
+    commuteTo: (title: string) => `Berangkat ke ${title}`,
+    commuteFrom: (title: string) => `Perjalanan dari ${title}`,
+  },
+
   agenda: {
     title: "Agenda",
     fieldTitleOverride: "Judul agenda",
