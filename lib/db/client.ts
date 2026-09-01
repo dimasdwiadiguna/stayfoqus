@@ -3,8 +3,10 @@ import Dexie, { type EntityTable } from "dexie";
 import type {
   Agenda,
   AvailabilityWindow,
+  CalendarEvent,
   Category,
   ConflictLogEntry,
+  EventException,
   GcalBusy,
   OutboxEntry,
   PomodoroLog,
@@ -33,6 +35,8 @@ export class FoqusDatabase extends Dexie {
   availability_windows!: EntityTable<AvailabilityWindow, "id">;
   time_blocks!: EntityTable<TimeBlock, "id">;
   time_block_exceptions!: EntityTable<TimeBlockException, "id">;
+  events!: EntityTable<CalendarEvent, "id">;
+  event_exceptions!: EntityTable<EventException, "id">;
   settings!: EntityTable<Settings, "id">;
   outbox!: EntityTable<OutboxEntry, "seq">;
   gcal_busy_cache!: EntityTable<GcalBusy, "id">;
@@ -77,6 +81,16 @@ export class FoqusDatabase extends Dexie {
             agenda.follows_agenda_id = null;
           }),
       );
+
+    // v3 adds `events` and `event_exceptions` — commitments that are not
+    // todos. No `upgrade()`: they are new tables, so there is no existing row
+    // to backfill. The exception's composite key mirrors `time_block_exceptions`
+    // so toggling a skip can find and revive its own row.
+    this.version(3).stores({
+      events: "id, recurrence, specific_date, updated_at, dirty",
+      event_exceptions:
+        "id, event_id, date, updated_at, dirty, [event_id+date]",
+    });
   }
 }
 

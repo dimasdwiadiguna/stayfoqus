@@ -32,17 +32,21 @@ interface Blocker {
 }
 
 function toBlocker(busy: BusyInterval): Blocker {
-  if (busy.source === "agenda" && busy.agendaId) {
+  const ownerId = busy.ownerId ?? busy.agendaId;
+  if ((busy.source === "agenda" || busy.source === "event") && ownerId) {
     // The interval already spans core + buffers; each side presents the buffer
-    // that faces outward from the agenda.
+    // that faces outward from the block. An event composes exactly like an
+    // agenda — §5.2 is about two buffered things meeting, not about todos.
     const before: EdgeKind = {
-      kind: "agenda",
-      agendaId: busy.agendaId,
+      kind: "buffered",
+      owner: busy.source,
+      ownerId,
       buffer: busy.bufferBefore ?? { min: 0, type: "switch" },
     };
     const after: EdgeKind = {
-      kind: "agenda",
-      agendaId: busy.agendaId,
+      kind: "buffered",
+      owner: busy.source,
+      ownerId,
       buffer: busy.bufferAfter ?? { min: 0, type: "switch" },
     };
     return { start: busy.start, end: busy.end, edgeBefore: before, edgeAfter: after };
@@ -148,13 +152,15 @@ export function occupy(
   const footprintEnd = placed.end + placed.bufferAfter.min * 60_000;
 
   const edgeBefore: EdgeKind = {
-    kind: "agenda",
-    agendaId: placed.agendaId,
+    kind: "buffered",
+    owner: "agenda",
+    ownerId: placed.agendaId,
     buffer: placed.bufferBefore,
   };
   const edgeAfter: EdgeKind = {
-    kind: "agenda",
-    agendaId: placed.agendaId,
+    kind: "buffered",
+    owner: "agenda",
+    ownerId: placed.agendaId,
     buffer: placed.bufferAfter,
   };
 
