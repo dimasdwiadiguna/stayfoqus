@@ -384,18 +384,38 @@ function PickDay({
           <div
             key={`${p.key}-${p.start}`}
             aria-hidden
-            className="pointer-events-none absolute inset-x-0 border-l-2 border-prayer bg-prayer/12 px-1"
+            className="pointer-events-none absolute inset-x-0 border-l-2 border-prayer bg-prayer/12"
             style={{
               top: topFor(c.start, date, timezone),
               height: heightFor(c.start, c.end),
             }}
           >
-            <span className="block truncate text-[9px] font-medium text-prayer">
+            {/* Top edge, clear of the adhan rule drawn across the middle. */}
+            <span className="absolute inset-x-1 top-0 truncate text-[9px] leading-tight font-medium text-prayer">
               {t.settings.prayerNames[p.key]}
             </span>
           </div>
         );
       })}
+
+      {/*
+        The adhan (D-102). Same solid rule as the main timeline: this column has
+        the same 1.5 px/min density, and choosing a slot next to a prayer block
+        is guesswork without knowing where inside it the call actually falls.
+      */}
+      {prayers.filter(within).map((p) => (
+        <div
+          key={`adhan-${p.key}-${p.start}`}
+          aria-hidden
+          className="pointer-events-none absolute inset-x-0 z-[6] h-0"
+          style={{ top: topFor(p.adhan, date, timezone) }}
+        >
+          <span className="absolute inset-x-0 -top-px h-0.5 bg-prayer" />
+          <span className="absolute right-0.5 -translate-y-1/2 rounded-sm bg-prayer px-0.5 text-[8px] leading-tight font-semibold text-bg tabular-nums">
+            {localTime(new Date(p.adhan), timezone)}
+          </span>
+        </div>
+      ))}
 
       {/* Existing agendas, read-only, with their buffers — the things the new
           block has to fit between. */}

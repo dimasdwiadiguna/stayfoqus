@@ -31,7 +31,7 @@ import {
   retryBlocked,
 } from "@/lib/sync/engine";
 import { useSyncStatus } from "@/lib/sync/status";
-import { localDate, localTime } from "@/lib/time";
+import { isFriday, localDate, localTime } from "@/lib/time";
 import { cn } from "@/lib/utils";
 
 const PRAYERS: PrayerKey[] = ["fajr", "dhuhr", "asr", "maghrib", "isha"];
@@ -139,6 +139,19 @@ function BufferSection() {
   );
 }
 
+/**
+ * The block a duration produces around an adhan, as "11:43–12:03".
+ *
+ * Mirrors `resolvePrayerBlocks` rather than calling it: this is one prayer on
+ * one day, and building the whole day's set for a label would be wasteful.
+ */
+function blockRangeFor(adhan: Date, durationMin: number, timezone: string): string {
+  const half = (durationMin * 60_000) / 2;
+  const start = new Date(adhan.getTime() - half);
+  const end = new Date(adhan.getTime() + half);
+  return `${localTime(start, timezone)}–${localTime(end, timezone)}`;
+}
+
 function PrayerSection() {
   const settings = useSettings();
 
@@ -231,7 +244,20 @@ function PrayerSection() {
               <div className="text-[15px]">{t.settings.prayerNames[key]}</div>
               {times ? (
                 <div className="text-[12px] tabular-nums text-fg-subtle">
-                  {localTime(times[key], settings.timezone)}
+                  {/*
+                    The adhan, then the block the duration above produces around
+                    it (D-102). Shown here because this is where the number is
+                    changed, and "20 menit" no longer means "20 minutes from the
+                    adhan" — it means 10 either side.
+                  */}
+                  {localTime(times[key], settings.timezone)} ·{" "}
+                  {blockRangeFor(
+                    times[key],
+                    key === "dhuhr" && isFriday(today)
+                      ? settings.friday_dhuhr_duration_min
+                      : block.duration_min,
+                    settings.timezone,
+                  )}
                 </div>
               ) : null}
             </div>

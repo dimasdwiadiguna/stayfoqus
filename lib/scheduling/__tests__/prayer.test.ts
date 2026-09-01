@@ -84,19 +84,43 @@ describe("§5.3 prayer blocks", () => {
     }
   });
 
-  it("starts each block at the prayer time", () => {
+  it("centres each block on the prayer time (D-102)", () => {
     const { times } = prayerTimesFor("2026-08-26", LAT, LNG, "Kemenag");
     const result = resolvePrayerBlocks(config, "2026-08-26", "2026-08-26");
-    const fajr = result.find((b) => b.key === "fajr")!;
-    expect(fajr.start).toBe(times.fajr.getTime());
+
+    for (const block of result) {
+      const adhan = times[block.key].getTime();
+      expect(block.adhan).toBe(adhan);
+      // Exactly in the middle: the first half is time to prepare.
+      expect(adhan - block.start).toBe(block.end - adhan);
+      expect(block.start).toBe(adhan - 10 * 60_000);
+      expect(block.end).toBe(adhan + 10 * 60_000);
+    }
   });
 
-  it("gives Friday Dhuhr the longer duration", () => {
+  it("splits an odd duration without drifting off the adhan", () => {
+    const { times } = prayerTimesFor("2026-08-26", LAT, LNG, "Kemenag");
+    const result = resolvePrayerBlocks(
+      { ...config, blocks: blocks(25) },
+      "2026-08-26",
+      "2026-08-26",
+    );
+    const asr = result.find((b) => b.key === "asr")!;
+
+    expect((asr.end - asr.start) / 60_000).toBe(25);
+    expect(asr.adhan).toBe(times.asr.getTime());
+    expect(asr.adhan - asr.start).toBe(asr.end - asr.adhan);
+  });
+
+  it("gives Friday Dhuhr the longer duration, centred like the rest", () => {
     // 2026-08-28 is a Friday.
     const friday = resolvePrayerBlocks(config, "2026-08-28", "2026-08-28");
     const dhuhr = friday.find((b) => b.key === "dhuhr")!;
     expect(dhuhr.fridayDhuhr).toBe(true);
     expect((dhuhr.end - dhuhr.start) / 60_000).toBe(90);
+    // One rule, no exception to remember: 45 minutes either side.
+    expect(dhuhr.adhan - dhuhr.start).toBe(45 * 60_000);
+    expect(dhuhr.end - dhuhr.adhan).toBe(45 * 60_000);
 
     // Every other prayer that day keeps its own duration.
     const asr = friday.find((b) => b.key === "asr")!;

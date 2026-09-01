@@ -69,6 +69,14 @@ export interface PrayerBlock extends Interval {
   key: "fajr" | "dhuhr" | "asr" | "maghrib" | "isha";
   /** True for the longer Friday Dhuhr block. */
   fridayDhuhr: boolean;
+  /**
+   * The call to prayer itself, at the exact midpoint of the block.
+   *
+   * Stored because the block no longer begins there (D-102): the first half is
+   * time to stop, walk and make wudhu. Without this instant nothing on screen
+   * could say when the adhan actually is.
+   */
+  adhan: number;
 }
 
 /** One occurrence of a recurring or one-off time block (§4.6, §5.4). */

@@ -117,9 +117,16 @@ export interface PrayerBlockConfig {
 }
 
 /**
- * Resolves prayer blocks for a date range. Each block starts at the prayer time
- * and runs for its configured duration; Friday Dhuhr uses
- * `friday_dhuhr_duration_min` instead (§5.3).
+ * Resolves prayer blocks for a date range.
+ *
+ * §5.3 has each block "starting at the prayer time". Requested change (D-102):
+ * the block is **centred** on the adhan instead, so its first half is time to
+ * stop working, walk and make wudhu — a block that begins at the call to prayer
+ * reserves no time to answer it.
+ *
+ * `duration_min` still means the *whole* block, so nothing about the day's
+ * capacity moves: 20 minutes is 20 minutes, now 10 either side. Friday Dhuhr
+ * follows the same rule with `friday_dhuhr_duration_min`.
  */
 export function resolvePrayerBlocks(
   config: PrayerBlockConfig,
@@ -147,13 +154,19 @@ export function resolvePrayerBlocks(
         : setting.duration_min;
       if (durationMin <= 0) continue;
 
-      const start = times[key].getTime();
+      // Halved in milliseconds rather than minutes, so an odd duration (25)
+      // splits exactly and `end - start` is always the configured length.
+      const adhan = times[key].getTime();
+      const durationMs = durationMin * 60_000;
+      const start = adhan - durationMs / 2;
+
       out.push({
         date,
         key,
         fridayDhuhr,
+        adhan,
         start,
-        end: start + durationMin * 60_000,
+        end: start + durationMs,
       });
     }
   }

@@ -20,7 +20,7 @@ import type {
   TimeBlockInstance,
   WindowInstance,
 } from "@/lib/scheduling";
-import { startOfLocalDay } from "@/lib/time";
+import { localTime, startOfLocalDay } from "@/lib/time";
 import { cn } from "@/lib/utils";
 
 export interface TimelineDayProps {
@@ -260,18 +260,47 @@ export function TimelineDay({
           <div
             key={`${p.key}-${p.start}`}
             aria-hidden
-            className="pointer-events-none absolute inset-x-0 border-l-2 border-prayer bg-prayer/12 px-1.5 py-0.5"
+            className="pointer-events-none absolute inset-x-0 border-l-2 border-prayer bg-prayer/12"
             style={{
               top: topFor(c.start, date, timezone),
               height: heightFor(c.start, c.end),
             }}
           >
-            <span className="truncate text-[10px] font-medium text-prayer">
+            {/*
+              Pinned to the band's top edge — the start of the time to prepare —
+              rather than floating in the middle, where the adhan rule below
+              would cut straight through it and read as a strikethrough.
+            */}
+            <span className="absolute inset-x-1.5 top-0 truncate text-[10px] leading-tight font-medium text-prayer">
               {t.settings.prayerNames[p.key]}
             </span>
           </div>
         );
       })}
+
+      {/*
+        The adhan itself (D-102). Since the block is centred on it rather than
+        starting there, this line is the only thing on screen that answers "what
+        time is the call to prayer" — so it is drawn as a solid 2px rule across
+        the full width, as legible as the now-line, and carries its own clock.
+      */}
+      {prayers.filter(within).map((p) => (
+        // Zero-height, anchored *on* the instant: the line and the label are
+        // then centred on it. Giving the wrapper a height and centring its
+        // contents put the rule below the adhan by half the label — three
+        // minutes at this density, on the one mark whose whole job is precision.
+        <div
+          key={`adhan-${p.key}-${p.start}`}
+          aria-hidden
+          className="pointer-events-none absolute inset-x-0 z-[6] h-0"
+          style={{ top: topFor(p.adhan, date, timezone) }}
+        >
+          <span className="absolute inset-x-0 -top-px h-0.5 bg-prayer" />
+          <span className="absolute right-1 -translate-y-1/2 rounded-sm bg-prayer px-1 text-[9px] leading-tight font-semibold text-bg tabular-nums">
+            {localTime(new Date(p.adhan), timezone)}
+          </span>
+        </div>
+      ))}
 
       {/* layers 4 & 5 — agendas, then drafts (drafts render last, on top) */}
       {[...laidOut]
