@@ -116,7 +116,7 @@ function ScheduleBody({
   defaultPomodoros?: number;
 }) {
   const settings = useSettings();
-  const { counters, index, agendas } = useTaskData();
+  const { counters, index, agendas, todos } = useTaskData();
   const now = useNow();
 
   /**
@@ -126,6 +126,11 @@ function ScheduleBody({
   const childFloor = React.useMemo(
     () => earliestStartFor(index, todo.id, agendas),
     [index, todo.id, agendas],
+  );
+
+  const todosById = React.useMemo(
+    () => new Map(todos.map((todo) => [todo.id, todo])),
+    [todos],
   );
 
   const today = localDate(new Date(), settings.timezone);
@@ -333,6 +338,7 @@ function ScheduleBody({
             prayers={world.prayers}
             timeBlocks={world.timeBlocks}
             agendas={agendas}
+            todosById={todosById}
             busy={world.busy.filter((b) => b.source === "gcal_busy")}
             durationMin={durationMin}
             buffers={world.buffers}
