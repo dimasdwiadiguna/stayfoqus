@@ -1,6 +1,12 @@
 "use client";
 
-import { ChevronLeft, ChevronRight, ClipboardList } from "lucide-react";
+import {
+  ChevronLeft,
+  ChevronRight,
+  ClipboardList,
+  Maximize2,
+  Minimize2,
+} from "lucide-react";
 import * as React from "react";
 
 import { AgendaSheet } from "@/components/calendar/agenda-sheet";
@@ -13,6 +19,8 @@ import { PrayerShiftDialog } from "@/components/calendar/prayer-shift-dialog";
 import { DraftBar } from "@/components/calendar/draft-bar";
 import { TimelineScrollContext } from "@/components/calendar/scroll-context";
 import { PlanningWizard } from "@/components/planning/planning-wizard";
+import { ScheduleSheet } from "@/components/calendar/schedule-sheet";
+import { TaskDetailSheet } from "@/components/tasks/task-detail-sheet";
 import { HourGutter, TimelineDay } from "@/components/calendar/timeline";
 import { EmptyState, Screen, ScreenTitle } from "@/components/shell/screen";
 import { SyncIndicator } from "@/components/shell/sync-indicator";
@@ -37,8 +45,14 @@ import {
   updateAgenda,
 } from "@/lib/agendas/repo";
 import { toggleSkip } from "@/lib/timeblocks/repo";
-import { HOUR_HEIGHT, instantForPx } from "@/lib/calendar/geometry";
-import type { Agenda, IsoDate, UUID } from "@/lib/db/schema";
+import {
+  FULL_DAY_VIEWPORT,
+  HOUR_HEIGHT,
+  dayViewport,
+  instantForPx,
+  type DayViewport,
+} from "@/lib/calendar/geometry";
+import type { Agenda, IsoDate, Todo, UUID } from "@/lib/db/schema";
 import { id as t } from "@/lib/i18n/id";
 import type { DropVerdict } from "@/components/calendar/agenda-block";
 import {
@@ -100,6 +114,10 @@ export function CalendarScreen() {
   const [pendingDrop, setPendingDrop] = React.useState<PendingDrop>(null);
   const [createAt, setCreateAt] = React.useState<CreateAtRequest | null>(null);
   const [planningOpen, setPlanningOpen] = React.useState(false);
+  const [openTodoId, setOpenTodoId] = React.useState<UUID | null>(null);
+  /** Off by default: the dead hours outside the productive band are hidden. */
+  const [fullDay, setFullDay] = React.useState(false);
+  const [scheduling, setScheduling] = React.useState<Todo | null>(null);
   const nowMs = useNow();
   const runningAgendaId = usePomodoroStore((s) => s.timer.agendaId);
 
@@ -124,7 +142,7 @@ export function CalendarScreen() {
     includeDraftAgendas: true,
   });
 
-  const { todos, agendas, index } = useTaskData();
+  const { todos, agendas, index, categories } = useTaskData();
   const logs = usePomodoroLogs();
   const todosById = React.useMemo(
     () => new Map(todos.map((todo) => [todo.id, todo])),
@@ -140,32 +158,6 @@ export function CalendarScreen() {
     return map;
   }, [logs]);
 
-  /** §7.2: auto-scroll to the current hour on open. */
-  React.useEffect(() => {
-    if (view === "list") return;
-    const key = `${view}:${anchor}`;
-    if (scrolledFor.current === key) return;
-
-    const target = anchor === today ? new Date().getHours() : 7;
-    const top = Math.max(0, (target - 1) * HOUR_HEIGHT);
-
-    // The pane's height comes from flex layout, which is not resolved on the
-    // first commit — assigning scrollTop then would clamp to 0. Retry on the
-    // next frames until the element can actually hold the offset.
-    let frame = 0;
-    let attempts = 0;
-    const apply = () => {
-      const el = scrollRef.current;
-      if (el && el.scrollHeight > el.clientHeight && el.clientHeight > 0) {
-        el.scrollTop = top;
-        scrolledFor.current = key;
-        return;
-      }
-      if (attempts++ < 20) frame = requestAnimationFrame(apply);
-    };
-    frame = requestAnimationFrame(apply);
-    return () => cancelAnimationFrame(frame);
-  }, [view, anchor, today]);
 
   const agendasForDay = React.useCallback(
     (date: IsoDate) =>
@@ -190,6 +182,69 @@ export function CalendarScreen() {
     const free = buildFreeSpace(dayWindows, dayBusy);
     return { count: list.length, allocated, freeMin: freeMinutes(free) };
   }, [agendasForDay, anchor, world.windows, world.busy]);
+
+  /**
+   * The slice of the 24-hour column the day columns render.
+   *
+   * One band for every visible day, or the three-day columns would not line up
+   * with each other or with the hour gutter. Union of each day's own band, so a
+   * late block on any one of them widens the view for all.
+   */
+  const viewport: DayViewport = React.useMemo(() => {
+    if (fullDay || view === "list") return FULL_DAY_VIEWPORT;
+
+    let top = Infinity;
+    let bottom = -Infinity;
+    for (const date of days) {
+      const band = dayViewport(
+        date,
+        settings.timezone,
+        world.windows.filter((w) => w.date === date),
+        agendasForDay(date)
+          .filter((a) => a.status !== "cancelled")
+          .map((a) => ({
+            // The buffers are part of what has to stay visible.
+            start:
+              new Date(a.start_at).getTime() - a.buffer_before_min * 60_000,
+            end: new Date(a.end_at).getTime() + a.buffer_after_min * 60_000,
+          })),
+      );
+      top = Math.min(top, band.topPx);
+      bottom = Math.max(bottom, band.topPx + band.heightPx);
+    }
+
+    if (!Number.isFinite(top) || bottom <= top) return FULL_DAY_VIEWPORT;
+    return { topPx: top, heightPx: bottom - top };
+  }, [fullDay, view, days, settings.timezone, world.windows, agendasForDay]);
+
+  /** §7.2: auto-scroll to the current hour on open. */
+  React.useEffect(() => {
+    if (view === "list") return;
+    const key = `${view}:${anchor}`;
+    if (scrolledFor.current === key) return;
+
+    const target = anchor === today ? new Date().getHours() : 7;
+    // Relative to the rendered band, not to midnight: the dead hours above the
+    // productive window are no longer part of the scrollable content.
+    const top = Math.max(0, (target - 1) * HOUR_HEIGHT - viewport.topPx);
+
+    // The pane's height comes from flex layout, which is not resolved on the
+    // first commit — assigning scrollTop then would clamp to 0. Retry on the
+    // next frames until the element can actually hold the offset.
+    let frame = 0;
+    let attempts = 0;
+    const apply = () => {
+      const el = scrollRef.current;
+      if (el && el.scrollHeight > el.clientHeight && el.clientHeight > 0) {
+        el.scrollTop = top;
+        scrolledFor.current = key;
+        return;
+      }
+      if (attempts++ < 20) frame = requestAnimationFrame(apply);
+    };
+    frame = requestAnimationFrame(apply);
+    return () => cancelAnimationFrame(frame);
+  }, [view, anchor, today, viewport.topPx]);
 
   const hasBuffers = React.useMemo(
     () =>
@@ -239,7 +294,10 @@ export function CalendarScreen() {
       if (!result.ok) toast.error(t.agenda.linkCycle);
     }
 
-    toast.undoable(t.calendar.moved, () => void updateAgenda(agenda.id, before));
+    toast.undoable(
+      t.calendar.moved,
+      () => void updateAgenda(agenda.id, before),
+    );
   };
 
   /** Asks about the pin, once the placement itself is settled. */
@@ -254,7 +312,14 @@ export function CalendarScreen() {
       void commitMove(agenda, start, end, outside, null);
       return;
     }
-    setPendingDrop({ agenda, start, end, link, phase: "link", reason: undefined });
+    setPendingDrop({
+      agenda,
+      start,
+      end,
+      link,
+      phase: "link",
+      reason: undefined,
+    });
   };
 
   const requestMove = (
@@ -296,7 +361,14 @@ export function CalendarScreen() {
         ),
       );
       if (avoidance) {
-        setPendingDrop({ agenda, start, end, link, phase: "prayer", avoidance });
+        setPendingDrop({
+          agenda,
+          start,
+          end,
+          link,
+          phase: "prayer",
+          avoidance,
+        });
         return;
       }
     }
@@ -420,14 +492,32 @@ export function CalendarScreen() {
   return (
     <Screen
       header={
+        // Kept to three thin rows: on a 390px screen every row of chrome is a
+        // row of timeline the user does not get to see.
         <div className="space-y-2">
-          <ScreenTitle title={t.calendar.title} actions={<SyncIndicator />} />
+          <ScreenTitle
+            title={t.calendar.title}
+            actions={
+              <>
+                <Button
+                  size="iconSm"
+                  variant="ghost"
+                  aria-label={t.planning.button}
+                  title={t.planning.button}
+                  onClick={() => setPlanningOpen(true)}
+                >
+                  <ClipboardList className="size-4" />
+                </Button>
+                <SyncIndicator />
+              </>
+            }
+          />
 
           <div className="flex items-center gap-1">
             <Button
               size="iconSm"
               variant="ghost"
-              aria-label={t.common.back}
+              aria-label={t.calendar.previousDay}
               onClick={() => setAnchor((d) => addDays(d, -step))}
             >
               <ChevronLeft className="size-4" />
@@ -438,7 +528,7 @@ export function CalendarScreen() {
             <Button
               size="iconSm"
               variant="ghost"
-              aria-label={t.calendar.now}
+              aria-label={t.calendar.nextDay}
               onClick={() => setAnchor((d) => addDays(d, step))}
             >
               <ChevronRight className="size-4" />
@@ -452,16 +542,7 @@ export function CalendarScreen() {
             </Button>
           </div>
 
-          <Button
-            block
-            variant="primary"
-            onClick={() => setPlanningOpen(true)}
-          >
-            <ClipboardList className="size-4" />
-            {t.planning.button}
-          </Button>
-
-          <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
             <Segmented
               ariaLabel={t.calendar.title}
               value={view}
@@ -473,26 +554,45 @@ export function CalendarScreen() {
               ]}
             />
             {view !== "list" ? (
-              <span className="shrink-0 text-right text-[11px] leading-tight tabular-nums text-fg-subtle">
-                {t.calendar.agendaCount(headerTotals.count)} ·{" "}
-                {t.calendar.allocatedPomodoro(headerTotals.allocated)}
-                <br />
-                {t.calendar.freeHours(formatHoursDecimal(headerTotals.freeMin))}
-              </span>
+              <>
+                <span className="min-w-0 flex-1 truncate text-right text-[11px] tabular-nums text-fg-subtle">
+                  {t.calendar.agendaCount(headerTotals.count)} ·{" "}
+                  {t.calendar.allocatedPomodoro(headerTotals.allocated)} ·{" "}
+                  {t.calendar.freeHours(
+                    formatHoursDecimal(headerTotals.freeMin),
+                  )}
+                </span>
+                {/*
+                  §5.2's two buffer types are only useful if they can be told
+                  apart on the timeline, so the key sits with the view it
+                  explains — and only on days that have a buffer to decode.
+                */}
+                {hasBuffers ? (
+                  <span className="flex shrink-0 items-center gap-1.5">
+                    <BufferSwatch type="switch" />
+                    <BufferSwatch type="commute" />
+                  </span>
+                ) : null}
+                <Button
+                  size="iconSm"
+                  variant="ghost"
+                  aria-label={
+                    fullDay ? t.calendar.compactHours : t.calendar.fullDayHours
+                  }
+                  title={
+                    fullDay ? t.calendar.compactHours : t.calendar.fullDayHours
+                  }
+                  onClick={() => setFullDay((v) => !v)}
+                >
+                  {fullDay ? (
+                    <Minimize2 className="size-4" />
+                  ) : (
+                    <Maximize2 className="size-4" />
+                  )}
+                </Button>
+              </>
             ) : null}
           </div>
-
-          {/*
-            §5.2's two buffer types are only useful if they can be told apart on
-            the timeline, so the key sits with the view it explains. Shown only
-            when the day actually has a buffer to decode.
-          */}
-          {view !== "list" && hasBuffers ? (
-            <div className="flex items-center gap-3">
-              <BufferSwatch type="switch" />
-              <BufferSwatch type="commute" />
-            </div>
-          ) : null}
         </div>
       }
       // The timeline pane owns its scrolling; only the list view uses the
@@ -529,67 +629,94 @@ export function CalendarScreen() {
           }}
         >
           <TimelineScrollContext.Provider value={scrollRef}>
-            <div className="flex">
-              <HourGutter />
-              {days.map((date) => (
-                <div
-                  key={date}
-                  className="min-w-0 flex-1 border-r border-border/60"
-                >
-                  {view === "three" ? (
-                    <div className="sticky top-0 z-30 border-b border-border bg-bg/95 py-1 text-center text-[11px] font-medium backdrop-blur">
-                      {formatDateWithWeekday(date)}
-                    </div>
-                  ) : null}
-                  <TimelineDay
-                    date={date}
-                    timezone={settings.timezone}
-                    windows={world.windows.filter((w) => w.date === date)}
-                    timeBlocks={world.timeBlocks.filter((b) => b.date === date)}
-                    busy={world.busy.filter((b) => b.source === "gcal_busy")}
-                    prayers={world.prayers.filter((p) => p.date === date)}
-                    agendas={agendasForDay(date)}
-                    todosById={todosById}
-                    completedByAgenda={completedByAgenda}
-                    runningAgendaId={runningAgendaId}
-                    nowMs={nowMs}
-                    compact={view === "three"}
-                    onOpenAgenda={(agenda) => setOpenAgendaId(agenda.id)}
-                    onMoveAgenda={onMoveAgenda}
-                    linkCandidateAt={linkCandidateAt}
-                    evaluateDropAt={evaluateDropAt}
-                    onToggleBlockSkip={(block) => {
-                      void (async () => {
-                        const skipped = await toggleSkip(
-                          block.timeBlockId,
-                          block.date,
+            {/*
+              The day labels sit outside the clipped band so they can stay
+              sticky against the scroll pane; `overflow: hidden` on the band
+              would otherwise strand them.
+            */}
+            {view === "three" ? (
+              <div className="sticky top-0 z-30 flex border-b border-border bg-bg/95 backdrop-blur">
+                <div className="w-11 shrink-0" aria-hidden />
+                {days.map((date) => (
+                  <div
+                    key={date}
+                    className="min-w-0 flex-1 py-1 text-center text-[11px] font-medium"
+                  >
+                    {formatDateWithWeekday(date)}
+                  </div>
+                ))}
+              </div>
+            ) : null}
+
+            {/*
+              The column stays a linear 24 hours; only the slice of it that is
+              rendered moves (D-095). Everything inside keeps computing its
+              position from the top of the day, so no drag arithmetic changes.
+            */}
+            <div
+              className="relative overflow-hidden"
+              style={{ height: viewport.heightPx }}
+            >
+              <div className="flex" style={{ marginTop: -viewport.topPx }}>
+                <HourGutter />
+                {days.map((date) => (
+                  <div
+                    key={date}
+                    className="min-w-0 flex-1 border-r border-border/60"
+                  >
+                    <TimelineDay
+                      date={date}
+                      timezone={settings.timezone}
+                      windows={world.windows.filter((w) => w.date === date)}
+                      timeBlocks={world.timeBlocks.filter(
+                        (b) => b.date === date,
+                      )}
+                      busy={world.busy.filter((b) => b.source === "gcal_busy")}
+                      prayers={world.prayers.filter((p) => p.date === date)}
+                      agendas={agendasForDay(date)}
+                      todosById={todosById}
+                      completedByAgenda={completedByAgenda}
+                      runningAgendaId={runningAgendaId}
+                      nowMs={nowMs}
+                      compact={view === "three"}
+                      onOpenAgenda={(agenda) => setOpenAgendaId(agenda.id)}
+                      onMoveAgenda={onMoveAgenda}
+                      linkCandidateAt={linkCandidateAt}
+                      evaluateDropAt={evaluateDropAt}
+                      onToggleBlockSkip={(block) => {
+                        void (async () => {
+                          const skipped = await toggleSkip(
+                            block.timeBlockId,
+                            block.date,
+                          );
+                          toast.undoable(
+                            skipped
+                              ? t.settings.timeBlockSkipped
+                              : t.settings.timeBlockUnskip,
+                            () =>
+                              void toggleSkip(block.timeBlockId, block.date),
+                          );
+                        })();
+                      }}
+                      onCreateAt={(px) => {
+                        const startMs = instantForPx(
+                          px,
+                          date,
+                          settings.timezone,
+                          15,
                         );
-                        toast.undoable(
-                          skipped
-                            ? t.settings.timeBlockSkipped
-                            : t.settings.timeBlockUnskip,
-                          () => void toggleSkip(block.timeBlockId, block.date),
-                        );
-                      })();
-                    }}
-                    onCreateAt={(px) => {
-                      const startMs = instantForPx(
-                        px,
-                        date,
-                        settings.timezone,
-                        15,
-                      );
-                      setCreateAt({
-                        date,
-                        startMs,
-                        outsideWindow: !world.windows.some(
-                          (w) => w.start <= startMs && startMs < w.end,
-                        ),
-                      });
-                    }}
-                  />
-                </div>
-              ))}
+                        setCreateAt({
+                          date,
+                          startMs,
+                          outsideWindow: !world.windows.some(
+                            (w) => w.start <= startMs && startMs < w.end,
+                          ),
+                        });
+                      }}
+                    />
+                  </div>
+                ))}
+              </div>
             </div>
           </TimelineScrollContext.Provider>
         </div>
@@ -608,6 +735,10 @@ export function CalendarScreen() {
         agendaId={openAgendaId}
         onClose={() => setOpenAgendaId(null)}
         onDelete={onDeleteAgenda}
+        onOpenTodo={(todoId) => {
+          setOpenAgendaId(null);
+          setOpenTodoId(todoId);
+        }}
         onStartFocus={(agenda) => {
           setOpenAgendaId(null);
           // Synchronously, before any await — the unlock is only honoured
@@ -631,7 +762,9 @@ export function CalendarScreen() {
       */}
       <PrayerShiftDialog
         avoidance={
-          pendingDrop?.phase === "prayer" ? (pendingDrop.avoidance ?? null) : null
+          pendingDrop?.phase === "prayer"
+            ? (pendingDrop.avoidance ?? null)
+            : null
         }
         timezone={settings.timezone}
         onOpenChange={(open) => !open && setPendingDrop(null)}
@@ -658,6 +791,25 @@ export function CalendarScreen() {
       />
 
       {/* §5.1 / §5.4 — the soft constraints, asked next. */}
+      {/*
+        An agenda is a slice of a todo, so the notes, subtasks and estimate
+        behind it should be one tap away rather than a tab away.
+      */}
+      <TaskDetailSheet
+        todo={openTodoId ? (index.byId.get(openTodoId) ?? null) : null}
+        todos={todos}
+        categories={categories}
+        timezone={settings.timezone}
+        onClose={() => setOpenTodoId(null)}
+        onSchedule={(todo) => {
+          setOpenTodoId(null);
+          setScheduling(todo);
+        }}
+        onOpenTodo={setOpenTodoId}
+      />
+
+      <ScheduleSheet todo={scheduling} onClose={() => setScheduling(null)} />
+
       <ConfirmDialog
         open={pendingDrop?.phase === "constraint"}
         onOpenChange={(open) => !open && setPendingDrop(null)}
@@ -694,8 +846,8 @@ export function CalendarScreen() {
         title={t.agenda.linkConfirmTitle(
           pendingDrop?.link
             ? (pendingDrop.link.predecessor.title_override ??
-              todosById.get(pendingDrop.link.predecessor.todo_id)?.title ??
-              t.agenda.title)
+                todosById.get(pendingDrop.link.predecessor.todo_id)?.title ??
+                t.agenda.title)
             : "",
         )}
         description={t.agenda.linkConfirmBody}

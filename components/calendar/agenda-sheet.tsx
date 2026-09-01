@@ -1,7 +1,7 @@
 "use client";
 
 import { useLiveQuery } from "dexie-react-hooks";
-import { Trash2 } from "lucide-react";
+import { ListTodo, Trash2 } from "lucide-react";
 import * as React from "react";
 
 import { BufferSwatch } from "@/components/calendar/buffer-band";
@@ -76,11 +76,13 @@ export function AgendaSheet({
   onClose,
   onDelete,
   onStartFocus,
+  onOpenTodo,
 }: {
   agendaId: UUID | null;
   onClose: () => void;
   onDelete: (agenda: Agenda) => void;
   onStartFocus?: (agenda: Agenda) => void;
+  onOpenTodo?: (todoId: UUID) => void;
 }) {
   const agenda = useLiveQuery(
     () => (agendaId ? getDb().agendas.get(agendaId) : undefined),
@@ -94,6 +96,7 @@ export function AgendaSheet({
           agenda={agenda}
           onDelete={onDelete}
           onStartFocus={onStartFocus}
+          onOpenTodo={onOpenTodo}
         />
       ) : null}
     </Sheet>
@@ -104,10 +107,12 @@ function AgendaSheetContent({
   agenda,
   onDelete,
   onStartFocus,
+  onOpenTodo,
 }: {
   agenda: Agenda;
   onDelete: (agenda: Agenda) => void;
   onStartFocus?: (agenda: Agenda) => void;
+  onOpenTodo?: (todoId: UUID) => void;
 }) {
   const settings = useSettings();
   const logs = usePomodoroLogs();
@@ -162,6 +167,17 @@ function AgendaSheetContent({
           >
             <Trash2 className="size-4" />
           </Button>
+          {onOpenTodo ? (
+            <Button
+              variant="secondary"
+              size="icon"
+              aria-label={t.agenda.openTodo}
+              title={t.agenda.openTodo}
+              onClick={() => onOpenTodo(agenda.todo_id)}
+            >
+              <ListTodo className="size-4" />
+            </Button>
+          ) : null}
           {onStartFocus ? (
             <Button variant="primary" block onClick={() => onStartFocus(agenda)}>
               {t.agenda.startFocus}

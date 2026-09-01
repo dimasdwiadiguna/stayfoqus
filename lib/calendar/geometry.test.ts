@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  DAY_HEIGHT,
+  dayViewport,
   heightFor,
   instantForPx,
   layoutOverlaps,
@@ -78,5 +80,51 @@ describe("overlap layout", () => {
     ]);
     const byId = new Map(out.map((o) => [o.item.id, o]));
     expect(byId.get("c")!.columns).toBe(1);
+  });
+});
+
+describe("the slice of the day the column renders", () => {
+  const span = (from: string, to: string) => ({
+    start: instantAt(DAY, from, JKT).getTime(),
+    end: instantAt(DAY, to, JKT).getTime(),
+  });
+
+  it("trims to the productive hours plus half an hour either side", () => {
+    const view = dayViewport(DAY, JKT, [span("04:00", "22:00")]);
+    expect(view.topPx).toBe(topFor(instantAt(DAY, "03:30", JKT), DAY, JKT));
+    expect(view.heightPx).toBe(minutesToPx(19 * 60));
+  });
+
+  it("spans from the first window to the last when a day has several", () => {
+    const view = dayViewport(DAY, JKT, [
+      span("04:00", "07:00"),
+      span("09:00", "22:00"),
+    ]);
+    expect(view.topPx).toBe(topFor(instantAt(DAY, "03:30", JKT), DAY, JKT));
+    expect(view.heightPx).toBe(minutesToPx(19 * 60));
+  });
+
+  it("widens rather than clip a block placed outside the window", () => {
+    // §5.1 allows it, so the view has to show it.
+    const view = dayViewport(DAY, JKT, [span("09:00", "17:00")], [
+      span("23:00", "23:45"),
+    ]);
+    expect(view.topPx + view.heightPx).toBe(
+      Math.ceil(topFor(instantAt(DAY, "23:45", JKT), DAY, JKT)),
+    );
+  });
+
+  it("never runs past the ends of the day", () => {
+    const midnight = instantAt(DAY, "00:00", JKT).getTime();
+    const view = dayViewport(DAY, JKT, [
+      { start: midnight, end: midnight + 24 * 60 * 60 * 1000 },
+    ]);
+    expect(view.topPx).toBe(0);
+    expect(view.topPx + view.heightPx).toBe(DAY_HEIGHT);
+  });
+
+  it("falls back to the whole day when there is no window at all", () => {
+    const view = dayViewport(DAY, JKT, []);
+    expect(view).toEqual({ topPx: 0, heightPx: DAY_HEIGHT });
   });
 });
