@@ -1581,3 +1581,115 @@ follows `.h-dvh` in the cascade so it wins, that the browser-tab path is
 byte-for-byte unchanged, and that forcing the standalone height produces a sane
 layout — tab bar flush at 896, `document.body.scrollHeight` 896, no overflow.
 The standalone path itself is confirmed on the reporter's phone.
+
+---
+
+## Event, pemilih slot untuk memindah, dan ticker yang lebih keras
+
+### D-105 · Events — a commitment that is not a todo — **Requested, new entity**
+
+Everything FOQUS puts on the calendar descends from a todo (an agenda), is
+computed (availability windows, prayer blocks, time blocks), or is mirrored
+from another Google calendar. A meeting, a class, an appointment — things that
+fill a day without being work you scheduled — had nowhere to live, so the
+allocator kept handing out hours that were already spoken for.
+
+Requested explicitly as the stand-in for the Google Calendar sync, which the
+user would rather defer than depend on. Four decisions inside that:
+
+**Shaped after `time_blocks`, not after agendas.** Wall-clock times plus a
+recurrence, rather than absolute instants. That is what makes "every Tuesday at
+09:00" stay 09:00 in the user's own timezone, and it lets the expansion and the
+per-date exceptions reuse a pattern that is already tested rather than inventing
+a second one. Two differences from a time block are deliberate:
+
+- `end_time` at or before `start_time` means the event ends the **next day**.
+  `expandTimeBlocks` skips such a row, and rightly — a time block is a rule
+  about a window, and a window that wraps midnight is a mistake. An event is a
+  thing that happens, and 21:00–00:30 happens.
+- a **skipped occurrence is returned, marked**, not dropped. Because the editor
+  is reachable only by tapping the block (the user's choice — see the limit
+  below), an occurrence that vanished could never be un-skipped once its undo
+  toast expired. Callers that reason about *time* filter it out; the calendar
+  draws it as a struck-through ghost that taps back.
+
+**`EdgeKind`'s "agenda" variant became "buffered".** An event reserves its core
+plus its buffers exactly as an agenda does, and `edgePaddingMin` only ever read
+`edge.buffer`. §5.2 is a rule about two buffered things meeting, not about
+todos, so the variant stopped claiming otherwise. The arithmetic is untouched
+and D-028's worked examples are now pinned twice — once with an agenda as the
+neighbour, once with an event.
+
+**Prayer blocks get no special treatment.** Requested in those terms: an event
+is a stretch of activity, and a prayer can be taken within it. Both are
+obstacles in the free-space map and may overlap; `buildFreeSpace` merges
+intersecting blockers so nothing is double-counted. What matters is that
+`avoidPrayer` is only ever called on the *agenda* placement path, so an event is
+never asked to move out of a prayer's way.
+
+**Manual placement over an event is confirmed, not forbidden** (the user's
+choice among three). It joins §5.1 and §5.4's family: one soft dialog, in the
+same place, with the same button. A single pure `overlappingEvent` drives both
+that dialog and the ring that colours while the block is still under the finger,
+so the warning and the question cannot disagree. The Custom tab runs the same
+check, or scheduling by typing a time would step over the very thing events
+exist to protect.
+
+**Not mirrored to Google.** §6.2 sends agendas; an event *is* the manual
+stand-in for that sync, so sending one back would close a pointless loop.
+
+**A known limit, accepted deliberately.** The user chose "tap the block on the
+calendar" over a list in Settings. That means a repeating event whose `end_date`
+has passed appears on no day and cannot be reached again — not to extend, not to
+revive. The mitigation for skipped occurrences (drawing the ghost) does not
+cover this one. If it bites, the fix is the Settings list that was declined.
+
+### D-106 · Moving an agenda uses the same picker as scheduling one — **Requested**
+
+Changing an agenda's date was a bare `<input type="date">`, which quietly
+skipped everything the app knows about choosing a time: the suggested slots, the
+prayer avoidance (D-093), the time-block confirmation, and the rule that a
+parent may not begin before its subtasks (D-081).
+
+Moving an agenda is the same question as scheduling it, so `ScheduleSheet` takes
+an optional agenda and moves it instead of creating one. Three things change,
+and nothing else:
+
+- the duration starts from that agenda, not from the todo's remaining
+  allocation;
+- the world is built with `excludeAgendaIds: {id}` — without it the agenda
+  occupies the slot it is trying to leave, and the most obvious answer, twenty
+  minutes later, is never offered (the edge D-069 found for reschedule);
+- the write goes through `updateAgenda`, which releases the "immediately after"
+  pin exactly as every other manual placement does (D-087).
+
+A pinned agenda's row stays disabled and says why: its start is derived, not
+authored.
+
+### D-107 · The ticker gets a second clock, and stays black in both themes — **Requested, relaxes D-066**
+
+D-066 put every screen on one 30-second clock so the now-line, the missed-agenda
+detector and the day header could not disagree. A countdown in seconds cannot
+live on it, so `useNow` grew `useTick(intervalMs)`: one shared timer per
+interval, started on the first subscriber and stopped after the last. Only the
+ticker asks for 1000 ms; everything else still shares the 30-second clock, and
+the guarantee D-066 was protecting is unaffected.
+
+The fast clock drives **which** activity is current and next, not only the
+digits. Driving only the digits would let the countdown reach zero and sit there
+for up to thirty seconds, showing a "next" that had already started.
+
+Clock style (`1:12:05`) rather than "1j 12m 5s": at one refresh per second the
+digits have to stay in the same places, and a unit-suffixed form changes width
+as the numbers shrink. Paired with `tabular-nums`.
+
+The strip is black in **both** themes, which is the point — in the light theme a
+surface-coloured bar merged into the header beneath it. It carries the `dark`
+class rather than a new set of tokens, which re-resolves every custom property
+inside it to the palette already designed to sit on black: the prayer teal, the
+commute bronze, the event rose, the warning amber. Nothing is picked twice, and
+a future colour inherits the treatment for free.
+
+The pulse runs always rather than only under five minutes — a countdown that
+sits still is just a number — and colour is what escalates. Both stay subject to
+`prefers-reduced-motion` through the global rule (D-007).
