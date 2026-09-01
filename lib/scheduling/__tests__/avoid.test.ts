@@ -13,13 +13,11 @@ function prayer(
   from: string,
   to: string,
 ): PrayerBlock {
-  return {
-    date: DATE,
-    key,
-    fridayDhuhr: false,
-    start: at(DATE, from),
-    end: at(DATE, to),
-  };
+  const start = at(DATE, from);
+  const end = at(DATE, to);
+  // The avoidance rule only ever reads the block's bounds, so the adhan is set
+  // to the midpoint the resolver would produce and nothing else changes.
+  return { date: DATE, key, fridayDhuhr: false, adhan: (start + end) / 2, start, end };
 }
 
 function window(from: string, to: string): WindowInstance {

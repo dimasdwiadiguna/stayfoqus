@@ -394,7 +394,7 @@ export const id = {
     bufferType: "Jenis buffer default",
 
     prayerBlurb:
-      "Dihitung offline dari koordinatmu. Blok sholat tidak pernah dikirim ke Google Calendar.",
+      "Dihitung offline dari koordinatmu. Blok dipusatkan pada waktu adzan — separuh pertamanya jadi waktu bersiap, jadi durasi 20 menit berarti 10 menit sebelum adzan dan 10 menit sesudahnya. Blok sholat tidak pernah dikirim ke Google Calendar.",
     prayerLocation: "Lokasi",
     prayerLatitude: "Lintang",
     prayerLongitude: "Bujur",
