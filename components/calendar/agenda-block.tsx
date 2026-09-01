@@ -23,6 +23,13 @@ import { cn } from "@/lib/utils";
 /** How long a press must be held before the block starts moving (§8). */
 const MOVE_HOLD_MS = 200;
 const MOVE_TOLERANCE_PX = 8;
+/** How close to the pane's edge a drag has to get before the day scrolls. */
+const AUTOSCROLL_EDGE_PX = 56;
+/** Fastest the pane scrolls itself, per frame, at the very edge. */
+const AUTOSCROLL_MAX_PX = 12;
+
+/** What the day column thinks of the placement currently under the finger. */
+export type DropVerdict = "ok" | "outside" | "time-block" | "prayer";
 
 /**
  * One agenda on the timeline.
@@ -34,9 +41,11 @@ const MOVE_TOLERANCE_PX = 8;
  * whole block is now one move surface, still gated behind a 200 ms hold so it
  * cannot hijack the timeline's vertical scroll.
  *
- * While it moves, the block looks for a predecessor to pin itself to (D-091).
- * When it finds one the preview snaps onto the exact chained start and the day
- * column draws the green seam; releasing there asks whether to keep the link.
+ * While it moves it does three things at once: looks for a predecessor to pin
+ * itself to (D-091), scrolls the day when it reaches the edge of the pane, and
+ * colours its own ring with what the drop would cost. The last two exist
+ * because the day column is 2160 px tall and the answer used to arrive only
+ * after release, in a dialog.
  */
 export function AgendaBlock({
   agenda,
@@ -52,6 +61,7 @@ export function AgendaBlock({
   onMove,
   linkCandidateAt,
   onLinkPreview,
+  evaluateDropAt,
 }: {
   agenda: Agenda;
   todo?: Todo;
@@ -64,10 +74,12 @@ export function AgendaBlock({
   running: boolean;
   onOpen: () => void;
   onMove: (startMs: number, link: LinkCandidate | null) => void;
-  /** Pure lookup, owned by the day column: what this start would pin to. */
+  /** Pure lookup, owned by the screen: what this start would pin to. */
   linkCandidateAt: (startMs: number) => LinkCandidate | null;
   /** Reports the live candidate so the column can draw the seam. */
   onLinkPreview: (candidate: LinkCandidate | null) => void;
+  /** Pure lookup: what a drop at this start would need confirming for. */
+  evaluateDropAt: (startMs: number) => DropVerdict;
 }) {
   const scrollRef = useTimelineScroll();
 
@@ -77,6 +89,7 @@ export function AgendaBlock({
   const [drag, setDrag] = React.useState<{
     deltaMin: number;
     link: LinkCandidate | null;
+    verdict: DropVerdict;
   } | null>(null);
 
   /**
@@ -126,13 +139,68 @@ export function AgendaBlock({
     /** Set once movement has been claimed as a scroll — no drag after that. */
     let scrolling = false;
     let holdTimer = 0;
+    let frame = 0;
+    /** Latest pointer position, so the autoscroll loop can re-apply it. */
+    let lastClientY = e.clientY;
+
+    /**
+     * Recomputes the preview from the pointer *and* the pane's current scroll.
+     *
+     * The scroll term matters because the pane can now move underneath a
+     * stationary finger; without it the block would slide out from under the
+     * pointer by exactly the distance auto-scrolled.
+     */
+    const applyMove = () => {
+      const scrolled = (pane?.scrollTop ?? 0) - paneStartTop;
+      const dyPx = lastClientY - originY + scrolled;
+      let deltaMin = snapMinutes(pxToMinutes(dyPx), MOVE_SNAP_MIN);
+
+      // Magnet: within reach of a neighbour, the preview lands on the exact
+      // chained start rather than on the 5-minute grid, so releasing where the
+      // green line appears produces precisely the placement it described.
+      const candidate = linkCandidateAt(startMs + deltaMin * MINUTE_MS);
+      if (candidate) deltaMin = (candidate.start - startMs) / MINUTE_MS;
+
+      linkRef.current = candidate;
+      deltaRef.current = deltaMin;
+      onLinkPreview(candidate);
+      setDrag({
+        deltaMin,
+        link: candidate,
+        verdict: evaluateDropAt(startMs + deltaMin * MINUTE_MS),
+      });
+    };
+
+    /** Scrolls the day while the drag is held against the pane's edge. */
+    const tick = () => {
+      frame = requestAnimationFrame(tick);
+      if (!armed || !pane) return;
+
+      const rect = pane.getBoundingClientRect();
+      const fromTop = lastClientY - rect.top;
+      const fromBottom = rect.bottom - lastClientY;
+
+      let step = 0;
+      if (fromTop < AUTOSCROLL_EDGE_PX) {
+        step = -AUTOSCROLL_MAX_PX * (1 - Math.max(0, fromTop) / AUTOSCROLL_EDGE_PX);
+      } else if (fromBottom < AUTOSCROLL_EDGE_PX) {
+        step = AUTOSCROLL_MAX_PX * (1 - Math.max(0, fromBottom) / AUTOSCROLL_EDGE_PX);
+      }
+      if (step === 0) return;
+
+      const before = pane.scrollTop;
+      pane.scrollTop = before + step;
+      // Clamped by the pane itself; when it has nothing left to give, stop
+      // recomputing so the block does not creep on a stationary finger.
+      if (pane.scrollTop !== before) applyMove();
+    };
 
     const arm = () => {
       if (scrolling) return;
       armed = true;
       deltaRef.current = 0;
       linkRef.current = null;
-      setDrag({ deltaMin: 0, link: null });
+      setDrag({ deltaMin: 0, link: null, verdict: "ok" });
       try {
         target.setPointerCapture(pointerId);
       } catch {
@@ -140,53 +208,43 @@ export function AgendaBlock({
       }
       // A drag is a deliberate act; confirm it in the hand.
       navigator.vibrate?.(8);
+      frame = requestAnimationFrame(tick);
     };
 
     holdTimer = window.setTimeout(arm, MOVE_HOLD_MS);
 
     const onPointerMove = (ev: PointerEvent) => {
-      const dyPx = ev.clientY - originY;
+      lastClientY = ev.clientY;
+      const rawDy = ev.clientY - originY;
 
       if (!armed) {
         const dxPx = ev.clientX - originX;
         // A clearly horizontal gesture is the day swipe; let it through
         // untouched by ending our involvement.
         if (
-          Math.abs(dxPx) > Math.abs(dyPx) &&
+          Math.abs(dxPx) > Math.abs(rawDy) &&
           Math.abs(dxPx) > MOVE_TOLERANCE_PX
         ) {
           cleanup(false);
           return;
         }
-        if (Math.abs(dyPx) > MOVE_TOLERANCE_PX) {
+        if (Math.abs(rawDy) > MOVE_TOLERANCE_PX) {
           scrolling = true;
           window.clearTimeout(holdTimer);
         }
-        if (scrolling && pane) pane.scrollTop = paneStartTop - dyPx;
+        if (scrolling && pane) pane.scrollTop = paneStartTop - rawDy;
         return;
       }
 
       ev.preventDefault();
-      let deltaMin = snapMinutes(pxToMinutes(dyPx), MOVE_SNAP_MIN);
-
-      // Magnet: within reach of a neighbour, the preview lands on the exact
-      // chained start rather than on the 5-minute grid, so releasing where the
-      // green line appears produces precisely the placement it described.
-      const candidate = linkCandidateAt(startMs + deltaMin * MINUTE_MS);
-      if (candidate) {
-        deltaMin = (candidate.start - startMs) / MINUTE_MS;
-      }
-
-      linkRef.current = candidate;
-      deltaRef.current = deltaMin;
-      onLinkPreview(candidate);
-      setDrag({ deltaMin, link: candidate });
+      applyMove();
     };
 
     const onPointerUp = () => cleanup(true);
 
     const cleanup = (commit: boolean) => {
       window.clearTimeout(holdTimer);
+      cancelAnimationFrame(frame);
       window.removeEventListener("pointermove", onPointerMove);
       window.removeEventListener("pointerup", onPointerUp);
       window.removeEventListener("pointercancel", onPointerUp);
@@ -293,9 +351,13 @@ export function AgendaBlock({
           agenda.status === "partial" && "border-warning/50 bg-warning/12",
           agenda.status === "missed" && "border-danger/50 bg-danger/12",
           drag && "shadow-lg ring-2 ring-accent",
-          // Pinned to a neighbour: the ring answers in the same green as the
-          // seam line, so the cue and its outcome read as one thing.
+          // The ring answers while the finger is still down, so the cost of a
+          // drop is known before it is made. Green for a pin, and a warning
+          // beats it — a link is a preference, a prayer block is not.
           drag?.link && "ring-success",
+          drag?.verdict === "outside" && "ring-warning",
+          drag?.verdict === "time-block" && "ring-warning",
+          drag?.verdict === "prayer" && "ring-prayer",
         )}
         // The block owns the gesture; scrolling is forwarded by hand in
         // `beginDrag` so a swipe starting here still moves the timeline.

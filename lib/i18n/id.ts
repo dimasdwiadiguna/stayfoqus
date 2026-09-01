@@ -171,6 +171,7 @@ export const id = {
     placeAnyway: "Tetap tempatkan",
     busy: "Sibuk",
     legend: "Keterangan",
+    moved: "Agenda dipindah.",
     outsideWindowBadge: "Di luar jam produktif",
     gcalConflict: "Diubah dari Google Calendar",
     draft: "Draf",

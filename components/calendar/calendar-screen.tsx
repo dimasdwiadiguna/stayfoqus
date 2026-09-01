@@ -40,11 +40,13 @@ import { toggleSkip } from "@/lib/timeblocks/repo";
 import { HOUR_HEIGHT, instantForPx } from "@/lib/calendar/geometry";
 import type { Agenda, IsoDate, UUID } from "@/lib/db/schema";
 import { id as t } from "@/lib/i18n/id";
+import type { DropVerdict } from "@/components/calendar/agenda-block";
 import {
   avoidPrayer,
   dragLinkCandidate,
   freeMinutes,
   isInsideWindow,
+  overlaps,
   violatedBlock,
   buildFreeSpace,
   type LinkCandidate,
@@ -210,6 +212,16 @@ export function CalendarScreen() {
     outside: boolean,
     link: LinkCandidate | null,
   ) => {
+    // Captured before the write so the undo is a real inverse (D-022) — a
+    // mis-drag otherwise loses the old time silently, and with it any pin the
+    // drag released.
+    const before = {
+      start_at: agenda.start_at,
+      end_at: agenda.end_at,
+      outside_window: agenda.outside_window,
+      follows_agenda_id: agenda.follows_agenda_id,
+    };
+
     // `follows_agenda_id` is always written explicitly: dragging a pinned
     // agenda by hand releases its pin (D-087), so leaving the column alone
     // would silently keep a link the user just overrode.
@@ -226,6 +238,8 @@ export function CalendarScreen() {
       const result = await linkImmediatelyAfter(agenda.id, link.predecessor.id);
       if (!result.ok) toast.error(t.agenda.linkCycle);
     }
+
+    toast.undoable(t.calendar.moved, () => void updateAgenda(agenda.id, before));
   };
 
   /** Asks about the pin, once the placement itself is settled. */
@@ -333,6 +347,43 @@ export function CalendarScreen() {
       new Date(agenda.end_at).getTime() - new Date(agenda.start_at).getTime();
     requestMove(agenda, startMs, startMs + duration, link);
   };
+
+  /**
+   * What a drop at `startMs` would cost, while the finger is still down.
+   *
+   * The same predicates the drop itself runs, so the ring can never promise
+   * something the dialogs then contradict. Read-only: nothing is decided here.
+   */
+  const evaluateDropAt = React.useCallback(
+    (agenda: Agenda, startMs: number): DropVerdict => {
+      const duration =
+        new Date(agenda.end_at).getTime() - new Date(agenda.start_at).getTime();
+      const interval = { start: startMs, end: startMs + duration };
+
+      if (world.prayers.some((prayer) => overlaps(interval, prayer))) {
+        return "prayer";
+      }
+      if (!isInsideWindow(interval, world.windows)) return "outside";
+
+      const todo = todosById.get(agenda.todo_id);
+      if (
+        todo &&
+        violatedBlock(
+          {
+            categoryId: todo.category_id,
+            tags: todo.tags,
+            priority: todo.priority,
+          },
+          interval,
+          world.timeBlocks,
+        )
+      ) {
+        return "time-block";
+      }
+      return "ok";
+    },
+    [world.prayers, world.windows, world.timeBlocks, todosById],
+  );
 
   /**
    * What a block dragged to `startMs` would pin itself to.
@@ -506,6 +557,7 @@ export function CalendarScreen() {
                     onOpenAgenda={(agenda) => setOpenAgendaId(agenda.id)}
                     onMoveAgenda={onMoveAgenda}
                     linkCandidateAt={linkCandidateAt}
+                    evaluateDropAt={evaluateDropAt}
                     onToggleBlockSkip={(block) => {
                       void (async () => {
                         const skipped = await toggleSkip(

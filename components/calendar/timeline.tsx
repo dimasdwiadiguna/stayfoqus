@@ -2,7 +2,7 @@
 
 import * as React from "react";
 
-import { AgendaBlock } from "@/components/calendar/agenda-block";
+import { AgendaBlock, type DropVerdict } from "@/components/calendar/agenda-block";
 import type { Agenda, IsoDate, Todo, UUID } from "@/lib/db/schema";
 import { id as t } from "@/lib/i18n/id";
 import {
@@ -48,6 +48,8 @@ export interface TimelineDayProps {
    * whole follow graph, not just today's blocks.
    */
   linkCandidateAt: (agenda: Agenda, startMs: number) => LinkCandidate | null;
+  /** What a drop at `startMs` would need confirming for, if anything. */
+  evaluateDropAt: (agenda: Agenda, startMs: number) => DropVerdict;
   onCreateAt: (startMs: number) => void;
   onToggleBlockSkip: (block: TimeBlockInstance) => void;
 }
@@ -75,6 +77,7 @@ export function TimelineDay({
   onOpenAgenda,
   onMoveAgenda,
   linkCandidateAt,
+  evaluateDropAt,
   onCreateAt,
   onToggleBlockSkip,
 }: TimelineDayProps) {
@@ -262,6 +265,7 @@ export function TimelineDay({
             onOpen={() => onOpenAgenda(item.agenda)}
             onMove={(startMs, link) => onMoveAgenda(item.agenda, startMs, link)}
             linkCandidateAt={(startMs) => linkCandidateAt(item.agenda, startMs)}
+            evaluateDropAt={(startMs) => evaluateDropAt(item.agenda, startMs)}
             onLinkPreview={(candidate) =>
               setLinkPreview(
                 candidate ? { candidate, follower: item.agenda } : null,
