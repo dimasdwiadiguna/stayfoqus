@@ -215,17 +215,33 @@ export function Segmented<T extends string>({
   );
 }
 
+/**
+ * A pill toggle.
+ *
+ * `size="sm"` is for rows that scroll horizontally rather than wrap: it trades
+ * 4 px of height for one more chip on a 390 px screen, and buys the touch
+ * target back with an invisible 8 px band above and below (M10's ≥44 px rule).
+ * That band would overlap the next line in a wrapping row, so the small size
+ * belongs only in single-row contexts.
+ */
 export function Chip({
   active,
+  size = "md",
   className,
   ...props
-}: React.ComponentProps<"button"> & { active?: boolean }) {
+}: React.ComponentProps<"button"> & {
+  active?: boolean;
+  size?: "md" | "sm";
+}) {
   return (
     <button
       type="button"
       aria-pressed={active}
       className={cn(
-        "inline-flex min-h-8 shrink-0 items-center gap-1.5 rounded-full border px-3 text-[13px] font-medium whitespace-nowrap transition-colors",
+        "relative inline-flex shrink-0 items-center gap-1.5 rounded-full border font-medium whitespace-nowrap transition-colors",
+        size === "sm"
+          ? "min-h-7 px-2.5 text-[12px] before:absolute before:inset-x-0 before:-top-2 before:-bottom-2 before:content-['']"
+          : "min-h-8 px-3 text-[13px]",
         active
           ? "border-accent bg-accent-soft text-accent"
           : "border-border bg-surface-2 text-fg-muted hover:text-fg",

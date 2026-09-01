@@ -128,35 +128,42 @@ function CreateAtBody({
         settings.timezone,
       )}`}
     >
-      <div className="space-y-4 pb-2">
+      <div className="space-y-3 pb-2">
+        {/*
+          The stepper shares the search row rather than owning one of its own:
+          the list of todos is what this sheet is for, and every row above it
+          is a row of candidates pushed off the screen.
+        */}
         <div className="flex items-center gap-2">
-          <span className="text-[13px] text-fg-muted">
-            {t.agenda.fieldAllocated}
-          </span>
-          <Button
-            size="iconSm"
-            aria-label="-"
-            onClick={() => setPomodoros((n) => Math.max(1, n - 1))}
-          >
-            −
-          </Button>
-          <span className="w-8 text-center text-[15px] font-semibold tabular-nums">
-            {pomodoros}
-          </span>
-          <Button
-            size="iconSm"
-            aria-label="+"
-            onClick={() => setPomodoros((n) => Math.min(8, n + 1))}
-          >
-            +
-          </Button>
+          <Input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder={t.common.search}
+            className="min-w-0 flex-1"
+          />
+          <div className="flex shrink-0 items-center gap-1">
+            <Button
+              size="iconSm"
+              aria-label={t.common.decrease}
+              onClick={() => setPomodoros((n) => Math.max(1, n - 1))}
+            >
+              −
+            </Button>
+            <span
+              className="w-8 text-center text-[15px] font-semibold tabular-nums"
+              aria-label={t.agenda.fieldAllocated}
+            >
+              {pomodoros}
+            </span>
+            <Button
+              size="iconSm"
+              aria-label={t.common.increase}
+              onClick={() => setPomodoros((n) => Math.min(8, n + 1))}
+            >
+              +
+            </Button>
+          </div>
         </div>
-
-        <Input
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder={t.common.search}
-        />
 
         {candidates.length === 0 ? (
           <p className="text-[13px] text-fg-subtle">{t.tasks.emptyFiltered}</p>

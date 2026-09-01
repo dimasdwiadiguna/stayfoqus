@@ -1,5 +1,6 @@
 "use client";
 
+import { EyeOff } from "lucide-react";
 import * as React from "react";
 
 import { AgendaBlock, type DropVerdict } from "@/components/calendar/agenda-block";
@@ -186,7 +187,18 @@ export function TimelineDay({
               borderColor: `${block.color}33`,
             }}
           >
-            {/* §4.7: skip this single occurrence. */}
+            {/*
+              The name is a label, not a control. It used to be the skip button
+              itself, so reading a block's name by tapping it silently skipped
+              that day's occurrence — a destructive action hiding inside a piece
+              of text. The action now has its own target and says what it does.
+            */}
+            <span
+              className="pointer-events-none absolute left-1.5 top-0.5 max-w-[70%] truncate text-left text-[10px] font-medium tracking-wide uppercase"
+              style={{ color: block.color }}
+            >
+              {block.name}
+            </span>
             <button
               type="button"
               onClick={(e) => {
@@ -194,11 +206,12 @@ export function TimelineDay({
                 onToggleBlockSkip(block);
               }}
               onPointerDown={(e) => e.stopPropagation()}
+              aria-label={t.settings.timeBlockSkipInstance}
               title={t.settings.timeBlockSkipInstance}
-              className="absolute left-1.5 top-0.5 max-w-[80%] truncate text-left text-[10px] font-medium tracking-wide uppercase"
+              className="absolute right-0.5 top-0.5 grid size-6 place-items-center rounded opacity-70 hover:opacity-100"
               style={{ color: block.color }}
             >
-              {block.name}
+              <EyeOff className="size-3.5" />
             </button>
           </div>
         );
@@ -275,6 +288,35 @@ export function TimelineDay({
         ))}
 
       {/*
+        Standing chains (D-091): a green spine down the left edge joining a
+        predecessor to each of its followers. The Link2 badge on a block says
+        *that* it follows something; the spine says what, and makes a chain of
+        three read as one run of work rather than three coincidences.
+      */}
+      {agendas.map((follower) => {
+        if (!follower.follows_agenda_id) return null;
+        const predecessor = agendas.find(
+          (a) => a.id === follower.follows_agenda_id,
+        );
+        // Only drawn when both ends are on this column; a chain across a day
+        // boundary has no line that could honestly join them.
+        if (!predecessor) return null;
+
+        const from = topFor(predecessor.start_at, date, timezone);
+        const to = topFor(follower.end_at, date, timezone);
+        if (to <= from) return null;
+
+        return (
+          <span
+            key={`chain-${follower.id}`}
+            aria-hidden
+            className="pointer-events-none absolute left-0 z-20 w-0.5 rounded-full bg-success/60"
+            style={{ top: from, height: to - from }}
+          />
+        );
+      })}
+
+      {/*
         The "immediately after" cue (D-091): a green seam drawn where the
         predecessor's reserved footprint ends and the dragged block's begins.
         With buffers of the same type §5.2 collapses the two into one instant,
@@ -293,6 +335,19 @@ export function TimelineDay({
           date={date}
           timezone={timezone}
         />
+      ) : null}
+
+      {/*
+        A day with nothing on it used to be a bare grid, and the only way to
+        put something there is a 450 ms long press with no affordance at all.
+        One line, out of the way, so the gesture is discoverable.
+      */}
+      {laidOut.length === 0 ? (
+        <div
+          className="pointer-events-none absolute inset-x-2 top-1/3 text-center text-[12px] leading-relaxed text-fg-subtle"
+        >
+          {t.calendar.emptyDayHint}
+        </div>
       ) : null}
 
       {/* current-time indicator */}

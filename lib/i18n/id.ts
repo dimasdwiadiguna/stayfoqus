@@ -30,6 +30,8 @@ export const id = {
     confirm: "Lanjutkan",
     search: "Cari",
     today: "Hari ini",
+    decrease: "Kurangi",
+    increase: "Tambah",
     yesterday: "Kemarin",
     tomorrow: "Besok",
     none: "Tidak ada",
@@ -218,6 +220,7 @@ export const id = {
     immediatelyAfterHint:
       "Terkunci ke jam selesai buffer agenda sebelumnya — kalau agenda itu digeser, yang ini ikut.",
     immediatelyAfterBadge: "Mengikuti",
+    followsNamed: (title: string) => `Mengikuti: ${title}`,
     linkCycle: "Tidak bisa: rantainya akan berputar.",
     linkCueLabel: (title: string) => `Langsung setelah ${title}`,
     linkConfirmTitle: (title: string) =>
