@@ -18,8 +18,8 @@ import { useNow } from "@/hooks/use-now";
 import { useSchedulingWorld } from "@/hooks/use-scheduling";
 import { useSettings } from "@/hooks/use-settings";
 import { useTaskData } from "@/hooks/use-tasks";
-import { createAgenda } from "@/lib/agendas/repo";
-import type { Todo, UUID } from "@/lib/db/schema";
+import { createAgenda, updateAgenda } from "@/lib/agendas/repo";
+import type { Agenda, Todo, UUID } from "@/lib/db/schema";
 import { id as t } from "@/lib/i18n/id";
 import { haptic } from "@/lib/reward";
 import {
@@ -77,11 +77,21 @@ type PendingConfirm = {
  */
 export function ScheduleSheet({
   todo,
+  agenda,
   onClose,
   defaultPomodoros,
   onScheduled,
 }: {
   todo: Todo | null;
+  /**
+   * Set to *move* this agenda rather than create a new one (D-106).
+   *
+   * Moving an agenda to another day is the same question as scheduling it in
+   * the first place, and everything that answers that question already lives
+   * here: the suggestions, the three tabs, the prayer avoidance, the time-block
+   * and parent-ordering rules. A bare date field skipped all of it.
+   */
+  agenda?: Agenda | null;
   onClose: () => void;
   defaultPomodoros?: number;
   /** Lets a caller (the planning wizard) advance after a successful schedule. */
@@ -91,13 +101,14 @@ export function ScheduleSheet({
     <Sheet open={Boolean(todo)} onOpenChange={(open) => !open && onClose()}>
       {todo ? (
         <SheetContent
-          title={t.agenda.scheduleSheetTitle}
+          title={agenda ? t.agenda.moveSheetTitle : t.agenda.scheduleSheetTitle}
           description={todo.title}
           className="h-[92dvh]"
         >
           <ScheduleBody
-            key={todo.id}
+            key={agenda?.id ?? todo.id}
             todo={todo}
+            agenda={agenda ?? null}
             onDone={() => {
               onScheduled?.();
               onClose();
@@ -112,10 +123,12 @@ export function ScheduleSheet({
 
 function ScheduleBody({
   todo,
+  agenda,
   onDone,
   defaultPomodoros,
 }: {
   todo: Todo;
+  agenda: Agenda | null;
   onDone: () => void;
   defaultPomodoros?: number;
 }) {
@@ -138,22 +151,36 @@ function ScheduleBody({
   );
 
   const today = localDate(new Date(), settings.timezone);
-  const world = useSchedulingWorld({ from: today, to: addDays(today, HORIZON_DAYS) });
+  const excludeAgendaIds = React.useMemo(
+    () => (agenda ? new Set([agenda.id]) : undefined),
+    [agenda],
+  );
+  const world = useSchedulingWorld({
+    from: today,
+    to: addDays(today, HORIZON_DAYS),
+    // Otherwise the agenda occupies the slot it is trying to leave, and the
+    // most obvious answer — twenty minutes later — is never offered (D-069).
+    excludeAgendaIds,
+  });
 
   const remaining = countersFor(counters, todo.id).remainingToAllocate;
-  const initialPomodoros = Math.max(
-    1,
-    Math.min(4, defaultPomodoros ?? remaining ?? 1),
-  );
+  const initialPomodoros = agenda
+    ? agenda.allocated_pomodoro
+    : Math.max(1, Math.min(4, defaultPomodoros ?? remaining ?? 1));
+  const initialDurationMin = agenda
+    ? Math.round(
+        (new Date(agenda.end_at).getTime() -
+          new Date(agenda.start_at).getTime()) /
+          60_000,
+      )
+    : sessionDurationMin(initialPomodoros, {
+        focusMin: settings.pomodoro_focus_min,
+        shortBreakMin: settings.pomodoro_short_break_min,
+      });
 
   const [mode, setMode] = React.useState<PickMode>("list");
   const [pomodoros, setPomodoros] = React.useState(initialPomodoros);
-  const [durationMin, setDurationMin] = React.useState(() =>
-    sessionDurationMin(initialPomodoros, {
-      focusMin: settings.pomodoro_focus_min,
-      shortBreakMin: settings.pomodoro_short_break_min,
-    }),
-  );
+  const [durationMin, setDurationMin] = React.useState(initialDurationMin);
 
   const [draft, setDraft] = React.useState<PickDraft | null>(null);
   const [manualDate, setManualDate] = React.useState(today);
@@ -194,6 +221,23 @@ function ScheduleBody({
     outsideWindow: boolean,
     followsAgendaId: UUID | null,
   ) => {
+    if (agenda) {
+      // A move writes `follows_agenda_id` explicitly for the same reason every
+      // other manual placement does: choosing a time by hand releases the pin
+      // unless the user asked for a new one (D-087).
+      await updateAgenda(agenda.id, {
+        start_at: new Date(start).toISOString(),
+        end_at: new Date(end).toISOString(),
+        allocated_pomodoro: n,
+        outside_window: outsideWindow,
+        follows_agenda_id: followsAgendaId,
+      });
+      haptic();
+      toast.success(t.calendar.moved);
+      onDone();
+      return;
+    }
+
     await createAgenda(
       {
         todo_id: todo.id,

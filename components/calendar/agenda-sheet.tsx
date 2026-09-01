@@ -1,7 +1,7 @@
 "use client";
 
 import { useLiveQuery } from "dexie-react-hooks";
-import { ListTodo, Trash2 } from "lucide-react";
+import { CalendarClock, ListTodo, Trash2 } from "lucide-react";
 import * as React from "react";
 
 import { BufferField } from "@/components/calendar/buffer-field";
@@ -17,7 +17,7 @@ import { linkImmediatelyAfter, updateAgenda } from "@/lib/agendas/repo";
 import { getDb } from "@/lib/db/client";
 import type { Agenda, UUID } from "@/lib/db/schema";
 import { id as t } from "@/lib/i18n/id";
-import { instantAt, localDate, localTime } from "@/lib/time";
+import { formatDateWithWeekday, localDate, localTime } from "@/lib/time";
 import { countsAsUsed } from "@/lib/todos/derived";
 
 export function AgendaSheet({
@@ -26,12 +26,15 @@ export function AgendaSheet({
   onDelete,
   onStartFocus,
   onOpenTodo,
+  onMove,
 }: {
   agendaId: UUID | null;
   onClose: () => void;
   onDelete: (agenda: Agenda) => void;
   onStartFocus?: (agenda: Agenda) => void;
   onOpenTodo?: (todoId: UUID) => void;
+  /** Opens the slot picker to move this agenda. */
+  onMove?: (agenda: Agenda) => void;
 }) {
   const agenda = useLiveQuery(
     () => (agendaId ? getDb().agendas.get(agendaId) : undefined),
@@ -46,6 +49,7 @@ export function AgendaSheet({
           onDelete={onDelete}
           onStartFocus={onStartFocus}
           onOpenTodo={onOpenTodo}
+          onMove={onMove}
         />
       ) : null}
     </Sheet>
@@ -57,11 +61,13 @@ function AgendaSheetContent({
   onDelete,
   onStartFocus,
   onOpenTodo,
+  onMove,
 }: {
   agenda: Agenda;
   onDelete: (agenda: Agenda) => void;
   onStartFocus?: (agenda: Agenda) => void;
   onOpenTodo?: (todoId: UUID) => void;
+  onMove?: (agenda: Agenda) => void;
 }) {
   const settings = useSettings();
   const logs = usePomodoroLogs();
@@ -93,14 +99,9 @@ function AgendaSheetContent({
       60_000,
   );
 
-  /** Moves the agenda, keeping its current length. */
-  const moveTo = (nextDate: string, nextTime: string) => {
-    const start = instantAt(nextDate, nextTime, settings.timezone).getTime();
-    void updateAgenda(agenda.id, {
-      start_at: new Date(start).toISOString(),
-      end_at: new Date(start + durationMin * 60_000).toISOString(),
-    });
-  };
+  // A pinned agenda's start is derived, not authored — offering to move it
+  // would be overwritten by the next chain resolve.
+  const pinned = agenda.follows_agenda_id !== null;
 
   /** Sets the length from the duration presets, deriving the pomodoro count. */
   const setDuration = (minutes: number, pomodoros: number) => {
@@ -193,27 +194,25 @@ function AgendaSheetContent({
           />
         </Field>
 
-        <div className="grid grid-cols-2 gap-3">
-          <Field label={t.agenda.fieldStart}>
-            <Input
-              type="date"
-              value={date}
-              disabled={agenda.follows_agenda_id !== null}
-              onChange={(e) => moveTo(e.target.value, time)}
-            />
-          </Field>
-          <Field label="&nbsp;">
-            <Input
-              type="time"
-              step={300}
-              value={time}
-              // A pinned agenda's start is derived, not authored — editing it
-              // here would be overwritten by the next chain resolve.
-              disabled={agenda.follows_agenda_id !== null}
-              onChange={(e) => moveTo(date, e.target.value)}
-            />
-          </Field>
-        </div>
+        {/*
+          Moving an agenda is the same question as scheduling it, so it opens
+          the same three-tab picker (D-106) — a bare date field skipped the
+          suggestions, the prayer avoidance and the time-block rules entirely.
+        */}
+        <Field
+          label={t.agenda.fieldSchedule}
+          hint={pinned ? t.agenda.pinnedSchedule : undefined}
+        >
+          <Button
+            block
+            variant="outline"
+            disabled={pinned}
+            onClick={() => onMove?.(agenda)}
+          >
+            <CalendarClock className="size-4" />
+            {formatDateWithWeekday(date)} · {time}
+          </Button>
+        </Field>
 
         <Field label={t.agenda.fieldTitleOverride}>
           <Input

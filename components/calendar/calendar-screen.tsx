@@ -122,6 +122,8 @@ export function CalendarScreen() {
   const [fullDay, setFullDay] = React.useState(false);
   const [scheduling, setScheduling] = React.useState<Todo | null>(null);
   const [openEvent, setOpenEvent] = React.useState<OpenEvent | null>(null);
+  /** The agenda whose slot is being re-picked, if any (D-106). */
+  const [movingAgenda, setMovingAgenda] = React.useState<Agenda | null>(null);
   const nowMs = useNow();
   const runningAgendaId = usePomodoroStore((s) => s.timer.agendaId);
 
@@ -809,6 +811,10 @@ export function CalendarScreen() {
           setOpenAgendaId(null);
           setOpenTodoId(todoId);
         }}
+        onMove={(agenda) => {
+          setOpenAgendaId(null);
+          setMovingAgenda(agenda);
+        }}
         onStartFocus={(agenda) => {
           setOpenAgendaId(null);
           // Synchronously, before any await — the unlock is only honoured
@@ -879,6 +885,15 @@ export function CalendarScreen() {
       />
 
       <ScheduleSheet todo={scheduling} onClose={() => setScheduling(null)} />
+
+      {/* The same picker, in move mode. */}
+      <ScheduleSheet
+        todo={
+          movingAgenda ? (index.byId.get(movingAgenda.todo_id) ?? null) : null
+        }
+        agenda={movingAgenda}
+        onClose={() => setMovingAgenda(null)}
+      />
 
       <ConfirmDialog
         open={pendingDrop?.phase === "constraint"}
