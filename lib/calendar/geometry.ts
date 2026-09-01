@@ -110,3 +110,64 @@ export function layoutOverlaps<T extends { start: number; end: number }>(
 
   return result;
 }
+
+/** The slice of the 24-hour column the day view actually renders. */
+export interface DayViewport {
+  /** Pixels of the full column hidden above the visible band. */
+  topPx: number;
+  /** Height of the visible band. */
+  heightPx: number;
+}
+
+export const FULL_DAY_VIEWPORT: DayViewport = { topPx: 0, heightPx: DAY_HEIGHT };
+
+/** Half an hour of breathing room either side of the productive hours. */
+const VIEWPORT_PAD_MIN = 30;
+
+/**
+ * Which hours of the day are worth showing.
+ *
+ * The column is 2160 px for 24 hours, but the default availability windows run
+ * 04:00–22:00 — so a fifth of every scroll is spent on hours nothing can be
+ * scheduled in. This trims the column to the productive band plus half an hour
+ * either side.
+ *
+ * The axis itself stays linear. A piecewise axis (collapsing dead hours into a
+ * thin strip) would change every pixel↔minute conversion the drag depends on,
+ * and D-077 is a record of what that arithmetic costs when it goes wrong. Only
+ * the *slice* moves, so `topFor` and `heightFor` are untouched and only the two
+ * absolute pixel→instant conversions have to add `topPx` back.
+ *
+ * `mustInclude` widens the band so nothing is ever clipped — §5.1 explicitly
+ * lets the user place an agenda outside a window, and a block the user cannot
+ * see is worse than a band of empty hours.
+ */
+export function dayViewport(
+  date: IsoDate,
+  timezone: string,
+  windows: readonly { start: number; end: number }[],
+  mustInclude: readonly { start: number; end: number }[] = [],
+): DayViewport {
+  if (windows.length === 0) return FULL_DAY_VIEWPORT;
+
+  const pad = minutesToPx(VIEWPORT_PAD_MIN);
+  let top = Infinity;
+  let bottom = -Infinity;
+
+  for (const window of windows) {
+    top = Math.min(top, topFor(window.start, date, timezone) - pad);
+    bottom = Math.max(bottom, topFor(window.end, date, timezone) + pad);
+  }
+  for (const item of mustInclude) {
+    top = Math.min(top, topFor(item.start, date, timezone));
+    bottom = Math.max(bottom, topFor(item.end, date, timezone));
+  }
+
+  const topPx = Math.max(0, Math.floor(top));
+  const heightPx = Math.min(DAY_HEIGHT, Math.ceil(bottom)) - topPx;
+
+  // A degenerate window set (or one that spans the whole day) falls back to
+  // the full column rather than to a sliver.
+  if (!Number.isFinite(heightPx) || heightPx <= 0) return FULL_DAY_VIEWPORT;
+  return { topPx, heightPx };
+}

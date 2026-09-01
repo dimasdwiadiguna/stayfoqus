@@ -123,10 +123,16 @@ export function QuickCapture({
             autoComplete="off"
           />
 
-          <div className="flex flex-wrap items-center gap-1.5">
+          {/*
+            One scrolling row instead of a wrapping block: capture is meant to
+            be "one tap to open, type, enter" (§7.1), and every extra row of
+            optional attributes pushes the keyboard further down the sheet.
+          */}
+          <div className="no-scrollbar -mx-1 flex items-center gap-1.5 overflow-x-auto px-1 py-1">
             {PRIORITIES.map((p) => (
               <Chip
                 key={p}
+                size="sm"
                 active={priority === p}
                 onClick={() => setPriority(p)}
                 aria-label={t.priority[`p${p}` as const]}
@@ -135,7 +141,10 @@ export function QuickCapture({
               </Chip>
             ))}
 
+            <span aria-hidden className="h-5 w-px shrink-0 bg-border" />
+
             <Chip
+              size="sm"
               active={estimate > 1}
               onClick={() => setEstimate((n) => (n >= 8 ? 1 : n + 1))}
               aria-label={t.tasks.fieldEstimate}
@@ -144,6 +153,7 @@ export function QuickCapture({
             </Chip>
 
             <Chip
+              size="sm"
               active={due === localDate(new Date(), timezone)}
               onClick={() =>
                 setDue((d) => (d ? "" : localDate(new Date(), timezone)))

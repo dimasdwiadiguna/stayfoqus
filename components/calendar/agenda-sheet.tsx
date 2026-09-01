@@ -1,7 +1,7 @@
 "use client";
 
 import { useLiveQuery } from "dexie-react-hooks";
-import { Trash2 } from "lucide-react";
+import { ListTodo, Trash2 } from "lucide-react";
 import * as React from "react";
 
 import { BufferSwatch } from "@/components/calendar/buffer-band";
@@ -76,11 +76,13 @@ export function AgendaSheet({
   onClose,
   onDelete,
   onStartFocus,
+  onOpenTodo,
 }: {
   agendaId: UUID | null;
   onClose: () => void;
   onDelete: (agenda: Agenda) => void;
   onStartFocus?: (agenda: Agenda) => void;
+  onOpenTodo?: (todoId: UUID) => void;
 }) {
   const agenda = useLiveQuery(
     () => (agendaId ? getDb().agendas.get(agendaId) : undefined),
@@ -94,6 +96,7 @@ export function AgendaSheet({
           agenda={agenda}
           onDelete={onDelete}
           onStartFocus={onStartFocus}
+          onOpenTodo={onOpenTodo}
         />
       ) : null}
     </Sheet>
@@ -104,16 +107,27 @@ function AgendaSheetContent({
   agenda,
   onDelete,
   onStartFocus,
+  onOpenTodo,
 }: {
   agenda: Agenda;
   onDelete: (agenda: Agenda) => void;
   onStartFocus?: (agenda: Agenda) => void;
+  onOpenTodo?: (todoId: UUID) => void;
 }) {
   const settings = useSettings();
   const logs = usePomodoroLogs();
   const [confirmDelete, setConfirmDelete] = React.useState(false);
 
   const todo = useLiveQuery(() => getDb().todos.get(agenda.todo_id), [agenda.todo_id]);
+
+  /** The agenda this one is pinned behind, resolved to something readable. */
+  const predecessorTitle = useLiveQuery(async () => {
+    if (!agenda.follows_agenda_id) return "";
+    const row = await getDb().agendas.get(agenda.follows_agenda_id);
+    if (!row) return "";
+    if (row.title_override) return row.title_override;
+    return (await getDb().todos.get(row.todo_id))?.title ?? t.agenda.title;
+  }, [agenda.follows_agenda_id]) ?? "";
   const completed = logs.filter(
     (log) => log.agenda_id === agenda.id && countsAsUsed(log),
   ).length;
@@ -162,6 +176,17 @@ function AgendaSheetContent({
           >
             <Trash2 className="size-4" />
           </Button>
+          {onOpenTodo ? (
+            <Button
+              variant="secondary"
+              size="icon"
+              aria-label={t.agenda.openTodo}
+              title={t.agenda.openTodo}
+              onClick={() => onOpenTodo(agenda.todo_id)}
+            >
+              <ListTodo className="size-4" />
+            </Button>
+          ) : null}
           {onStartFocus ? (
             <Button variant="primary" block onClick={() => onStartFocus(agenda)}>
               {t.agenda.startFocus}
@@ -183,7 +208,12 @@ function AgendaSheetContent({
 
         {agenda.follows_agenda_id ? (
           <div className="space-y-2 rounded-lg border border-success/40 bg-success/10 px-3 py-2.5">
-            <p className="text-[13px] text-success">
+            {/* Naming it matters: "mengikuti agenda sebelumnya" is only useful
+                if the user can tell which one that is. */}
+            <p className="text-[13px] font-medium text-success">
+              {t.agenda.followsNamed(predecessorTitle)}
+            </p>
+            <p className="text-[12px] text-success/80">
               {t.agenda.immediatelyAfterHint}
             </p>
             <Button
@@ -206,15 +236,11 @@ function AgendaSheetContent({
           </p>
         ) : null}
 
-        <Field label={t.agenda.fieldTitleOverride}>
-          <Input
-            defaultValue={agenda.title_override ?? ""}
-            placeholder={todo?.title ?? ""}
-            onBlur={(e) =>
-              void updateAgenda(agenda.id, {
-                title_override: e.target.value.trim() || null,
-              })
-            }
+        <Field label={t.agenda.fieldDuration}>
+          <DurationPicker
+            valueMin={durationMin}
+            onChange={setDuration}
+            shape={shape}
           />
         </Field>
 
@@ -240,11 +266,15 @@ function AgendaSheetContent({
           </Field>
         </div>
 
-        <Field label={t.agenda.fieldDuration}>
-          <DurationPicker
-            valueMin={durationMin}
-            onChange={setDuration}
-            shape={shape}
+        <Field label={t.agenda.fieldTitleOverride}>
+          <Input
+            defaultValue={agenda.title_override ?? ""}
+            placeholder={todo?.title ?? ""}
+            onBlur={(e) =>
+              void updateAgenda(agenda.id, {
+                title_override: e.target.value.trim() || null,
+              })
+            }
           />
         </Field>
 

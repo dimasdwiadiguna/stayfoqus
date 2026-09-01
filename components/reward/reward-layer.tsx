@@ -5,15 +5,20 @@ import * as React from "react";
 
 import { ConfirmDialog } from "@/components/ui/dialog";
 import { DayCompleteSheet } from "@/components/reward/day-complete";
+import { toast } from "@/components/ui/toast";
 import { useNow } from "@/hooks/use-now";
 import { useSettings } from "@/hooks/use-settings";
 import { getDb } from "@/lib/db/client";
 import type { PomodoroLog, Todo, UUID } from "@/lib/db/schema";
 import { id as t } from "@/lib/i18n/id";
-import { isDayCleared, shouldPromptTodoDone } from "@/lib/agendas/coupling";
+import {
+  agendasImplyTodoDone,
+  isDayCleared,
+  shouldPromptTodoDone,
+} from "@/lib/agendas/coupling";
 import { celebrate } from "@/lib/reward";
 import { localDate } from "@/lib/time";
-import { completeTodo } from "@/lib/todos/repo";
+import { completeTodo, uncompleteTodo } from "@/lib/todos/repo";
 
 /**
  * §5.9 and §9, mounted once above the tabs.
@@ -38,6 +43,41 @@ export function RewardLayer() {
   const todos = useLiveQuery(() => getDb().todos.toArray(), []);
   const logs = useLiveQuery(() => getDb().pomodoro_logs.toArray(), []);
 
+  /* ---------------- D-094: agendas all done → the todo is done ----------- */
+
+  /**
+   * The todo whose every agenda is now marked done.
+   *
+   * Derived during render like everything else here; the write below is the
+   * genuine side effect, and the ref keeps it to once per todo so a live query
+   * firing again mid-write cannot start a second one.
+   */
+  const autoDone: Todo | null = React.useMemo(() => {
+    if (!agendas || !todos) return null;
+    for (const todo of todos) {
+      const own = agendas.filter((a) => a.todo_id === todo.id);
+      if (agendasImplyTodoDone({ todo, agendas: own })) return todo;
+    }
+    return null;
+  }, [agendas, todos]);
+
+  const autoCompleted = React.useRef<ReadonlySet<UUID>>(new Set());
+
+  React.useEffect(() => {
+    if (!autoDone || autoCompleted.current.has(autoDone.id)) return;
+    autoCompleted.current = new Set(autoCompleted.current).add(autoDone.id);
+
+    void (async () => {
+      const undo = await completeTodo(autoDone.id);
+      // Answered rather than asked, so it has to be as easy to take back as a
+      // swipe-to-complete is (D-022).
+      toast.undoable(
+        t.tasks.autoCompleted(autoDone.title),
+        () => void uncompleteTodo(autoDone.id, undo),
+      );
+    })();
+  }, [autoDone]);
+
   /* ---------------- §5.9 "Todo sudah selesai?" --------------------------- */
 
   const candidate: Todo | null = React.useMemo(() => {
@@ -55,6 +95,9 @@ export function RewardLayer() {
       if (answered.has(todo.id)) continue;
       const own = agendas.filter((a) => a.todo_id === todo.id);
       if (own.length === 0) continue;
+      // Owned by the automatic rule above; asking as well would flash a dialog
+      // for a question already being answered.
+      if (agendasImplyTodoDone({ todo, agendas: own })) continue;
 
       const ownLogs = own.flatMap((a) => logsByAgenda.get(a.id) ?? []);
       if (shouldPromptTodoDone({ todo, agendas: own, logs: ownLogs, now })) {
@@ -99,7 +142,14 @@ export function RewardLayer() {
         confirmLabel={t.missed.todoDoneYes}
         cancelLabel={t.missed.todoDoneNo}
         onConfirm={() => {
-          if (candidate) void completeTodo(candidate.id);
+          if (!candidate) return;
+          void (async () => {
+            const undo = await completeTodo(candidate.id);
+            toast.undoable(
+              t.tasks.completed,
+              () => void uncompleteTodo(candidate.id, undo),
+            );
+          })();
         }}
       />
 

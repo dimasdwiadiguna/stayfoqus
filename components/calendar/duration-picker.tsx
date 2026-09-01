@@ -42,10 +42,16 @@ export function DurationPicker({
 
   return (
     <div className={className}>
-      <div className="flex flex-wrap gap-1.5">
+      {/*
+        One scrolling row rather than two wrapped ones. Seven presets wrapped
+        onto a second line on a 390px screen, which cost a whole row of the
+        sheet for a control the user usually just taps once.
+      */}
+      <div className="no-scrollbar -mx-1 flex gap-1.5 overflow-x-auto px-1 py-1">
         {DURATION_PRESETS_MIN.map((minutes) => (
           <Chip
             key={minutes}
+            size="sm"
             active={!custom && valueMin === minutes}
             onClick={() => {
               setCustom(false);
@@ -55,36 +61,41 @@ export function DurationPicker({
             {formatDuration(minutes)}
           </Chip>
         ))}
-        <Chip active={custom} onClick={() => setCustom((v) => !v)}>
+        <Chip size="sm" active={custom} onClick={() => setCustom((v) => !v)}>
           {t.agenda.durationCustom}
         </Chip>
       </div>
 
-      {custom ? (
-        <div className="mt-2 flex items-center gap-2">
-          <Input
-            type="number"
-            min={5}
-            max={600}
-            step={5}
-            value={valueMin}
-            aria-label={t.agenda.durationCustom}
-            onChange={(e) => {
-              const next = Number(e.target.value);
-              if (Number.isFinite(next)) apply(next);
-            }}
-            className="h-10 w-28"
-          />
-          <span className="text-[12px] text-fg-subtle">{t.common.minutes}</span>
-        </div>
-      ) : null}
-
-      <p className="mt-1.5 text-[12px] text-fg-subtle">
-        {t.agenda.durationEquivalent(
-          pomodorosForDuration(valueMin, shape),
-          formatDuration(sessionDurationMin(pomodorosForDuration(valueMin, shape), shape)),
-        )}
-      </p>
+      <div className="mt-1 flex items-center gap-2">
+        {custom ? (
+          <>
+            <Input
+              type="number"
+              min={5}
+              max={600}
+              step={5}
+              value={valueMin}
+              aria-label={t.agenda.durationCustom}
+              onChange={(e) => {
+                const next = Number(e.target.value);
+                if (Number.isFinite(next)) apply(next);
+              }}
+              className="h-9 w-24"
+            />
+            <span className="text-[12px] text-fg-subtle">
+              {t.common.minutes}
+            </span>
+          </>
+        ) : null}
+        <span className="min-w-0 flex-1 truncate text-[12px] text-fg-subtle">
+          {t.agenda.durationEquivalent(
+            pomodorosForDuration(valueMin, shape),
+            formatDuration(
+              sessionDurationMin(pomodorosForDuration(valueMin, shape), shape),
+            ),
+          )}
+        </span>
+      </div>
     </div>
   );
 }

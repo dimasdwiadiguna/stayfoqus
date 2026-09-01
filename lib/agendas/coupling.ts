@@ -50,6 +50,44 @@ export function shouldPromptTodoDone(input: {
   return allocated >= todo.estimated_pomodoro;
 }
 
+/**
+ * The other direction: the agendas say the todo is finished.
+ *
+ * §5.9 is explicit that "completing an agenda does not auto-complete its todo",
+ * and offers a one-tap prompt instead. Requested change (D-094): when *every*
+ * agenda a todo has is marked done, the todo is done too — there is nothing
+ * left the prompt could usefully ask. The answer is written rather than
+ * requested, and made reversible with an undo toast instead.
+ *
+ * Three things this deliberately does not treat as finished:
+ *
+ * - a `partial` agenda — the work was explicitly reported as unfinished;
+ * - a `draft` — it was never a commitment, so it neither blocks nor completes;
+ * - a todo whose `estimated_pomodoro` exceeds what its agendas allocate. That
+ *   is D-070's third clarification, and it still holds: a todo estimated at 6
+ *   with 2 scheduled has four pomodoros of work nobody has planned yet, and
+ *   declaring it done because those 2 ran would be wrong.
+ */
+export function agendasImplyTodoDone(input: {
+  todo: Todo;
+  /** Every non-deleted agenda for this todo. */
+  agendas: readonly Agenda[];
+}): boolean {
+  const { todo, agendas } = input;
+
+  if (todo.status === "done" || todo.status === "archived") return false;
+  if (todo.deleted_at) return false;
+
+  const live = agendas.filter(
+    (a) => !a.deleted_at && a.status !== "cancelled" && a.status !== "draft",
+  );
+  if (live.length === 0) return false;
+  if (!live.every((a) => a.status === "done")) return false;
+
+  const allocated = live.reduce((sum, a) => sum + a.allocated_pomodoro, 0);
+  return allocated >= todo.estimated_pomodoro;
+}
+
 /** §9 — "all of today's agendas have been reviewed". */
 export function isDayCleared(
   agendasToday: readonly Agenda[],

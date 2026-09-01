@@ -5,7 +5,7 @@ import * as React from "react";
 
 import { BufferBand } from "@/components/calendar/buffer-band";
 import { Button } from "@/components/ui/button";
-import type { Agenda, IsoDate, UUID } from "@/lib/db/schema";
+import type { Agenda, IsoDate, Todo, UUID } from "@/lib/db/schema";
 import { id as t } from "@/lib/i18n/id";
 import {
   DAY_HEIGHT,
@@ -57,6 +57,7 @@ export function PickTimeline({
   prayers,
   timeBlocks,
   agendas,
+  todosById,
   busy,
   durationMin,
   buffers,
@@ -70,7 +71,9 @@ export function PickTimeline({
   prayers: readonly PrayerBlock[];
   timeBlocks: readonly TimeBlockInstance[];
   agendas: readonly Agenda[];
-  busy: readonly { start: number; end: number }[];
+  /** Titles for the agendas already on the day, so the picker is not blind. */
+  todosById: Map<UUID, Todo>;
+  busy: readonly { start: number; end: number; label?: string }[];
   durationMin: number;
   buffers: { before: BufferSide; after: BufferSide };
   draft: PickDraft | null;
@@ -168,6 +171,7 @@ export function PickTimeline({
               prayers={prayers.filter((p) => p.date === date)}
               timeBlocks={timeBlocks.filter((b) => b.date === date)}
               agendas={agendas}
+              todosById={todosById}
               busy={busy}
               draft={draft?.date === date ? draft : null}
               durationMin={durationMin}
@@ -238,6 +242,7 @@ function PickDay({
   prayers,
   timeBlocks,
   agendas,
+  todosById,
   busy,
   draft,
   durationMin,
@@ -252,7 +257,8 @@ function PickDay({
   prayers: readonly PrayerBlock[];
   timeBlocks: readonly TimeBlockInstance[];
   agendas: readonly Agenda[];
-  busy: readonly { start: number; end: number }[];
+  todosById: Map<UUID, Todo>;
+  busy: readonly { start: number; end: number; label?: string }[];
   draft: PickDraft | null;
   durationMin: number;
   buffers: { before: BufferSide; after: BufferSide };
@@ -334,13 +340,22 @@ function PickDay({
           <div
             key={`${block.timeBlockId}-${block.start}`}
             aria-hidden
-            className="pointer-events-none absolute inset-x-0"
+            className="pointer-events-none absolute inset-x-0 px-1"
             style={{
               top: topFor(c.start, date, timezone),
               height: heightFor(c.start, c.end),
               backgroundColor: `${block.color}12`,
             }}
-          />
+          >
+            {/* Plain text, not the timeline's skip button: this screen is for
+                choosing a slot, not for editing the blocks it has to respect. */}
+            <span
+              className="block truncate text-[9px] font-medium tracking-wide uppercase"
+              style={{ color: block.color }}
+            >
+              {block.name}
+            </span>
+          </div>
         );
       })}
 
@@ -350,12 +365,16 @@ function PickDay({
           <div
             key={`b${i}`}
             aria-hidden
-            className="pointer-events-none absolute inset-x-0 bg-busy/25"
+            className="pointer-events-none absolute inset-x-0 bg-busy/25 px-1"
             style={{
               top: topFor(c.start, date, timezone),
               height: heightFor(c.start, c.end),
             }}
-          />
+          >
+            <span className="block truncate text-[9px] text-fg-subtle">
+              {b.label ?? t.calendar.busy}
+            </span>
+          </div>
         );
       })}
 
@@ -365,12 +384,16 @@ function PickDay({
           <div
             key={`${p.key}-${p.start}`}
             aria-hidden
-            className="pointer-events-none absolute inset-x-0 border-l-2 border-prayer bg-prayer/12"
+            className="pointer-events-none absolute inset-x-0 border-l-2 border-prayer bg-prayer/12 px-1"
             style={{
               top: topFor(c.start, date, timezone),
               height: heightFor(c.start, c.end),
             }}
-          />
+          >
+            <span className="block truncate text-[9px] font-medium text-prayer">
+              {t.settings.prayerNames[p.key]}
+            </span>
+          </div>
         );
       })}
 
@@ -406,9 +429,12 @@ function PickDay({
               left="2px"
               width="calc(100% - 4px)"
             />
+            {/* The block the new one has to fit around, named — choosing a
+                slot next to "rapat" is a different decision from choosing one
+                next to an unlabelled rectangle. */}
             <div
               aria-hidden
-              className="pointer-events-none absolute rounded-sm border border-accent/40 bg-accent-soft/70 px-1 text-[9px] leading-tight text-fg-muted"
+              className="pointer-events-none absolute flex items-baseline gap-1 overflow-hidden rounded-sm border border-accent/40 bg-accent-soft/70 px-1 text-[9px] leading-tight"
               style={{
                 top: topFor(start, date, timezone),
                 height: heightFor(start, end),
@@ -416,7 +442,14 @@ function PickDay({
                 right: 2,
               }}
             >
-              {localTime(new Date(start), timezone)}
+              <span className="shrink-0 tabular-nums text-fg-muted">
+                {localTime(new Date(start), timezone)}
+              </span>
+              <span className="min-w-0 flex-1 truncate font-medium text-fg">
+                {agenda.title_override ??
+                  todosById.get(agenda.todo_id)?.title ??
+                  t.agenda.title}
+              </span>
             </div>
           </React.Fragment>
         ))}

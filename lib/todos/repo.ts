@@ -9,7 +9,7 @@ import {
   updateRow,
 } from "@/lib/db/mutations";
 import type {
-  Agenda,
+  AgendaStatus,
   IsoDate,
   IsoWeek,
   Priority,
@@ -17,6 +17,7 @@ import type {
   TodoStatus,
   UUID,
 } from "@/lib/db/schema";
+import { updateAgenda } from "@/lib/agendas/repo";
 import { buildTodoIndex, canNest, descendantsOf, findDependencyCycle } from "@/lib/todos/tree";
 import { planCompletion, suggestedReported } from "@/lib/todos/completion";
 import { localDate } from "@/lib/time";
@@ -131,34 +132,57 @@ export async function reorderSiblings(orderedIds: UUID[]): Promise<void> {
 /* completion                                                          */
 /* ------------------------------------------------------------------ */
 
-export interface CompleteTodoOptions {
-  /** §5.9: also remove the todo's future `planned` agendas. */
-  removeFutureAgendas?: boolean;
+/** Enough to put the agendas back exactly as they were, for the undo toast. */
+export interface CompletionUndo {
+  agendas: { id: UUID; status: AgendaStatus }[];
 }
 
-export async function completeTodo(
-  todoId: UUID,
-  options: CompleteTodoOptions = {},
-): Promise<void> {
+/**
+ * Marks a todo done, and resolves the agendas it still has open.
+ *
+ * §5.9 asked whether to *delete* the agendas that had not run yet. They are
+ * marked instead (D-094): an agenda is a record of what the day was for, and
+ * deleting the ones that were never started throws away exactly the history
+ * that makes the pomodoro counters honest. `planned`, `missed` and `partial`
+ * become `done`; a `draft` becomes `cancelled`, because it was never a
+ * commitment and §6.2 would otherwise write it to Google as a real event.
+ *
+ * The prior statuses come back so the undo is a true inverse (D-022).
+ */
+export async function completeTodo(todoId: UUID): Promise<CompletionUndo> {
   const db = getDb();
-  const futureAgendas = options.removeFutureAgendas
-    ? (await db.agendas.where("todo_id").equals(todoId).toArray()).filter(
-        (a) => !a.deleted_at && a.status === "planned" && new Date(a.end_at) > new Date(),
-      )
-    : [];
+  const outstanding = (
+    await db.agendas.where("todo_id").equals(todoId).toArray()
+  ).filter(
+    (a) => !a.deleted_at && a.status !== "done" && a.status !== "cancelled",
+  );
 
   await updateRow("todos", todoId, {
     status: "done",
     completed_at: nowIso(),
   });
 
-  for (const agenda of futureAgendas) {
-    await softDeleteRow("agendas", agenda.id);
+  for (const agenda of outstanding) {
+    // Through `updateAgenda`, so the Google side follows: a done agenda is
+    // upserted, a cancelled one has its event removed (§6.2).
+    await updateAgenda(agenda.id, {
+      status: agenda.status === "draft" ? "cancelled" : "done",
+    });
   }
+
+  return {
+    agendas: outstanding.map((a) => ({ id: a.id, status: a.status })),
+  };
 }
 
-export async function uncompleteTodo(todoId: UUID): Promise<void> {
+export async function uncompleteTodo(
+  todoId: UUID,
+  undo?: CompletionUndo,
+): Promise<void> {
   await updateRow("todos", todoId, { status: "active", completed_at: null });
+  for (const agenda of undo?.agendas ?? []) {
+    await updateAgenda(agenda.id, { status: agenda.status });
+  }
 }
 
 /** Everything the completion prompt needs to open with a sensible number. */
@@ -216,11 +240,10 @@ async function logsForTodo(todoId: UUID, agendaIds: UUID[]) {
 export async function completeTodoWithPomodoro(
   todoId: UUID,
   reported: number,
-  options: CompleteTodoOptions = {},
-): Promise<void> {
+): Promise<CompletionUndo> {
   const db = getDb();
   const todo = await db.todos.get(todoId);
-  if (!todo) return;
+  if (!todo) return { agendas: [] };
 
   const settingsRow = (await db.settings.toArray())[0];
   const timezone = settingsRow?.timezone ?? "Asia/Jakarta";
@@ -300,16 +323,7 @@ export async function completeTodoWithPomodoro(
     });
   }
 
-  await completeTodo(todoId, options);
-}
-
-/** Future `planned` agendas for a todo — drives the §5.9 prompt. */
-export async function futurePlannedAgendas(todoId: UUID): Promise<Agenda[]> {
-  const now = new Date();
-  const rows = await getDb().agendas.where("todo_id").equals(todoId).toArray();
-  return rows.filter(
-    (a) => !a.deleted_at && a.status === "planned" && new Date(a.end_at) > now,
-  );
+  return completeTodo(todoId);
 }
 
 /** Incomplete children of a todo — drives the §4.2 soft warning. */

@@ -30,6 +30,8 @@ export const id = {
     confirm: "Lanjutkan",
     search: "Cari",
     today: "Hari ini",
+    decrease: "Kurangi",
+    increase: "Tambah",
     yesterday: "Kemarin",
     tomorrow: "Besok",
     none: "Tidak ada",
@@ -127,9 +129,10 @@ export const id = {
     completedPomodoroAlready: (n: number) =>
       `${n} sudah tercatat hari ini — sisanya yang ditambahkan.`,
     completedPomodoroNone: "Tidak ada pomodoro",
-    hasFutureAgendas: (n: number) => `Hapus ${n} agenda yang belum jalan?`,
-    keepAgendas: "Biarkan",
-    removeAgendas: "Hapus agenda",
+    completedWithAgendas: (n: number) =>
+      `Tugas selesai. ${n} agenda ikut ditandai selesai.`,
+    autoCompleted: (title: string) =>
+      `Semua agenda "${title}" selesai — tugasnya ikut ditandai selesai.`,
   },
 
   priority: {
@@ -150,11 +153,24 @@ export const id = {
     allocatedPomodoro: (n: number) => `${n} pomodoro`,
     freeHours: (h: string) => `${h} jam luang`,
     now: "Sekarang",
+    previousDay: "Hari sebelumnya",
+    nextDay: "Hari berikutnya",
+    fullDayHours: "Tampilkan 24 jam",
+    compactHours: "Ringkas ke jam produktif",
+    emptyDayHint: "Tekan lama di jam mana pun untuk menaruh agenda.",
     newAgenda: "Agenda baru",
     newTimeBlock: "Blok waktu baru",
     outsideWindowConfirm: "Di luar jam produktif kamu. Tetap jadwalkan?",
     overPrayerConfirm:
       "Waktunya bentrok dengan blok sholat. Tetap jadwalkan di sini?",
+    prayerShiftTitle: (name: string) => `Bentrok dengan waktu ${name}`,
+    prayerShiftBody:
+      "Geser agar waktu sholat tetap utuh, atau tetap tempatkan di sini.",
+    prayerShiftEarlier: (range: string) => `Mundur ke ${range}`,
+    prayerShiftLater: (range: string) => `Maju ke ${range}`,
+    prayerNoSlot: (name: string) =>
+      `Tidak ada slot kosong sebelum atau sesudah ${name}. Kalau tetap ditempatkan, agenda ini menerobos waktu sholat.`,
+    prayerKeep: "Tetap di sini",
     overBusyConfirm:
       "Bentrok dengan acara di kalender lain. Tetap jadwalkan di sini?",
     timeBlockConfirm: (name: string) =>
@@ -163,6 +179,7 @@ export const id = {
     placeAnyway: "Tetap tempatkan",
     busy: "Sibuk",
     legend: "Keterangan",
+    moved: "Agenda dipindah.",
     outsideWindowBadge: "Di luar jam produktif",
     gcalConflict: "Diubah dari Google Calendar",
     draft: "Draf",
@@ -203,12 +220,21 @@ export const id = {
     immediatelyAfterHint:
       "Terkunci ke jam selesai buffer agenda sebelumnya — kalau agenda itu digeser, yang ini ikut.",
     immediatelyAfterBadge: "Mengikuti",
+    followsNamed: (title: string) => `Mengikuti: ${title}`,
     linkCycle: "Tidak bisa: rantainya akan berputar.",
+    linkCueLabel: (title: string) => `Langsung setelah ${title}`,
+    linkConfirmTitle: (title: string) =>
+      `Tautkan agar mulai langsung setelah "${title}"?`,
+    linkConfirmBody:
+      "Kalau ditautkan, agenda ini ikut bergeser setiap agenda sebelumnya dipindah.",
+    linkConfirmYes: "Ya, tautkan",
+    linkConfirmNo: "Taruh di sini saja",
     suggestedSlots: "Slot yang disarankan",
     noSlots:
       "Tidak ada slot kosong yang cocok. Coba perpanjang jam produktif atau pilih waktu lain.",
     pickAnotherTime: "Pilih waktu lain…",
     startFocus: "Mulai fokus",
+    openTodo: "Buka tugas",
     scheduled: "Agenda dibuat.",
     fieldDuration: "Durasi",
     durationCustom: "Custom",

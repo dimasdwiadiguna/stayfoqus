@@ -1,8 +1,9 @@
 "use client";
 
+import { EyeOff } from "lucide-react";
 import * as React from "react";
 
-import { AgendaBlock } from "@/components/calendar/agenda-block";
+import { AgendaBlock, type DropVerdict } from "@/components/calendar/agenda-block";
 import type { Agenda, IsoDate, Todo, UUID } from "@/lib/db/schema";
 import { id as t } from "@/lib/i18n/id";
 import {
@@ -10,9 +11,11 @@ import {
   HOUR_HEIGHT,
   heightFor,
   layoutOverlaps,
+  minutesToPx,
   topFor,
 } from "@/lib/calendar/geometry";
 import type {
+  LinkCandidate,
   PrayerBlock,
   TimeBlockInstance,
   WindowInstance,
@@ -34,9 +37,22 @@ export interface TimelineDayProps {
   runningAgendaId: UUID | null;
   nowMs: number | null;
   compact?: boolean;
+  /** Top of the rendered band, so the empty-day hint lands where it is seen. */
+  viewportTopPx: number;
   onOpenAgenda: (agenda: Agenda) => void;
-  onMoveAgenda: (agenda: Agenda, startMs: number) => void;
-  onResizeAgenda: (agenda: Agenda, endMs: number) => void;
+  onMoveAgenda: (
+    agenda: Agenda,
+    startMs: number,
+    link: LinkCandidate | null,
+  ) => void;
+  /**
+   * What a block dragged to `startMs` would pin itself to. Answered by the
+   * screen rather than the column, because cycle detection has to walk the
+   * whole follow graph, not just today's blocks.
+   */
+  linkCandidateAt: (agenda: Agenda, startMs: number) => LinkCandidate | null;
+  /** What a drop at `startMs` would need confirming for, if anything. */
+  evaluateDropAt: (agenda: Agenda, startMs: number) => DropVerdict;
   onCreateAt: (startMs: number) => void;
   onToggleBlockSkip: (block: TimeBlockInstance) => void;
 }
@@ -61,9 +77,11 @@ export function TimelineDay({
   runningAgendaId,
   nowMs,
   compact = false,
+  viewportTopPx,
   onOpenAgenda,
   onMoveAgenda,
-  onResizeAgenda,
+  linkCandidateAt,
+  evaluateDropAt,
   onCreateAt,
   onToggleBlockSkip,
 }: TimelineDayProps) {
@@ -91,6 +109,16 @@ export function TimelineDay({
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [agendas, dayStart, dayEnd],
   );
+
+  /**
+   * The link being offered by the block currently under the finger, if any.
+   * Lifted here because the cue belongs to the seam *between* two blocks, not
+   * to either one of them.
+   */
+  const [linkPreview, setLinkPreview] = React.useState<{
+    candidate: LinkCandidate;
+    follower: Agenda;
+  } | null>(null);
 
   const pressRef = React.useRef<{ timer: number; y: number } | null>(null);
 
@@ -124,15 +152,26 @@ export function TimelineDay({
       onPointerUp={cancelPress}
       onPointerCancel={cancelPress}
     >
+      {/*
+        Every decorative layer is pointer-transparent. They are absolutely
+        positioned over the whole column, so without this the long-press that
+        creates an agenda never fired: `e.target !== e.currentTarget` matched on
+        the shading, and the gesture returned early everywhere on the day. The
+        same trap D-086 records for the slot picker.
+      */}
+
       {/* layer 0 — outside-window shading */}
-      <div aria-hidden className="absolute inset-0 bg-surface/40" />
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-0 bg-surface/40"
+      />
       {windows.filter(within).map((w, i) => {
         const c = clip(w);
         return (
           <div
             key={`w${i}`}
             aria-hidden
-            className="absolute inset-x-0 bg-bg"
+            className="pointer-events-none absolute inset-x-0 bg-bg"
             style={{ top: topFor(c.start, date, timezone), height: heightFor(c.start, c.end) }}
           />
         );
@@ -143,7 +182,7 @@ export function TimelineDay({
         <div
           key={hour}
           aria-hidden
-          className="absolute inset-x-0 border-t border-border/45"
+          className="pointer-events-none absolute inset-x-0 border-t border-border/45"
           style={{ top: hour * HOUR_HEIGHT }}
         />
       ))}
@@ -154,7 +193,7 @@ export function TimelineDay({
         return (
           <div
             key={`${block.timeBlockId}-${block.start}`}
-            className="absolute inset-x-0 border-y"
+            className="pointer-events-none absolute inset-x-0 border-y"
             style={{
               top: topFor(c.start, date, timezone),
               height: heightFor(c.start, c.end),
@@ -162,7 +201,18 @@ export function TimelineDay({
               borderColor: `${block.color}33`,
             }}
           >
-            {/* §4.7: skip this single occurrence. */}
+            {/*
+              The name is a label, not a control. It used to be the skip button
+              itself, so reading a block's name by tapping it silently skipped
+              that day's occurrence — a destructive action hiding inside a piece
+              of text. The action now has its own target and says what it does.
+            */}
+            <span
+              className="pointer-events-none absolute left-1.5 top-0.5 max-w-[70%] truncate text-left text-[10px] font-medium tracking-wide uppercase"
+              style={{ color: block.color }}
+            >
+              {block.name}
+            </span>
             <button
               type="button"
               onClick={(e) => {
@@ -170,11 +220,12 @@ export function TimelineDay({
                 onToggleBlockSkip(block);
               }}
               onPointerDown={(e) => e.stopPropagation()}
+              aria-label={t.settings.timeBlockSkipInstance}
               title={t.settings.timeBlockSkipInstance}
-              className="absolute left-1.5 top-0.5 max-w-[80%] truncate text-left text-[10px] font-medium tracking-wide uppercase"
+              className="pointer-events-auto absolute right-0.5 top-0.5 grid size-6 place-items-center rounded opacity-70 hover:opacity-100"
               style={{ color: block.color }}
             >
-              {block.name}
+              <EyeOff className="size-3.5" />
             </button>
           </div>
         );
@@ -186,7 +237,8 @@ export function TimelineDay({
         return (
           <div
             key={`b${i}`}
-            className="absolute inset-x-0 flex items-start bg-busy/20 px-1.5 py-0.5"
+            aria-hidden
+            className="pointer-events-none absolute inset-x-0 flex items-start bg-busy/20 px-1.5 py-0.5"
             style={{
               top: topFor(c.start, date, timezone),
               height: heightFor(c.start, c.end),
@@ -207,7 +259,8 @@ export function TimelineDay({
         return (
           <div
             key={`${p.key}-${p.start}`}
-            className="absolute inset-x-0 border-l-2 border-prayer bg-prayer/12 px-1.5 py-0.5"
+            aria-hidden
+            className="pointer-events-none absolute inset-x-0 border-l-2 border-prayer bg-prayer/12 px-1.5 py-0.5"
             style={{
               top: topFor(c.start, date, timezone),
               height: heightFor(c.start, c.end),
@@ -239,10 +292,83 @@ export function TimelineDay({
             completed={completedByAgenda.get(item.agenda.id) ?? 0}
             running={runningAgendaId === item.agenda.id}
             onOpen={() => onOpenAgenda(item.agenda)}
-            onMove={(startMs) => onMoveAgenda(item.agenda, startMs)}
-            onResize={(endMs) => onResizeAgenda(item.agenda, endMs)}
+            onMove={(startMs, link) => onMoveAgenda(item.agenda, startMs, link)}
+            linkCandidateAt={(startMs) => linkCandidateAt(item.agenda, startMs)}
+            evaluateDropAt={(startMs) => evaluateDropAt(item.agenda, startMs)}
+            onLinkPreview={(candidate) =>
+              setLinkPreview(
+                candidate ? { candidate, follower: item.agenda } : null,
+              )
+            }
           />
         ))}
+
+      {/*
+        Standing chains (D-091): a green spine down the left edge joining a
+        predecessor to each of its followers. The Link2 badge on a block says
+        *that* it follows something; the spine says what, and makes a chain of
+        three read as one run of work rather than three coincidences.
+      */}
+      {agendas.map((follower) => {
+        if (!follower.follows_agenda_id) return null;
+        const predecessor = agendas.find(
+          (a) => a.id === follower.follows_agenda_id,
+        );
+        // Only drawn when both ends are on this column; a chain across a day
+        // boundary has no line that could honestly join them.
+        if (!predecessor) return null;
+
+        const from = topFor(predecessor.start_at, date, timezone);
+        const to = topFor(follower.end_at, date, timezone);
+        if (to <= from) return null;
+
+        return (
+          <span
+            key={`chain-${follower.id}`}
+            aria-hidden
+            className="pointer-events-none absolute left-0 z-20 w-1 rounded-full bg-success/70"
+            style={{ top: from, height: to - from }}
+          />
+        );
+      })}
+
+      {/*
+        The "immediately after" cue (D-091): a green seam drawn where the
+        predecessor's reserved footprint ends and the dragged block's begins.
+        With buffers of the same type §5.2 collapses the two into one instant,
+        so the usual case is a single line; when they differ, the strip between
+        them is tinted so the composed gap is visible too.
+      */}
+      {linkPreview ? (
+        <LinkSeam
+          candidate={linkPreview.candidate}
+          follower={linkPreview.follower}
+          predecessorTitle={
+            linkPreview.candidate.predecessor.title_override ??
+            todosById.get(linkPreview.candidate.predecessor.todo_id)?.title ??
+            t.agenda.title
+          }
+          date={date}
+          timezone={timezone}
+        />
+      ) : null}
+
+      {/*
+        A day with nothing on it used to be a bare grid, and the only way to
+        put something there is a 450 ms long press with no affordance at all.
+        One line, out of the way, so the gesture is discoverable.
+      */}
+      {laidOut.length === 0 ? (
+        <div
+          className="pointer-events-none absolute inset-x-2 text-center text-[12px] leading-relaxed text-fg-subtle"
+          // Anchored to the visible band rather than to the column: at a third
+          // of 2160 px the hint would sit at 08:00 and be off screen for most
+          // of the day.
+          style={{ top: viewportTopPx + 48 }}
+        >
+          {t.calendar.emptyDayHint}
+        </div>
+      ) : null}
 
       {/* current-time indicator */}
       {nowMs !== null && nowMs >= dayStart && nowMs < dayEnd ? (
@@ -255,6 +381,57 @@ export function TimelineDay({
           <span className="h-px flex-1 bg-danger" />
         </div>
       ) : null}
+    </div>
+  );
+}
+
+/**
+ * The green cue drawn between a dragged block and the predecessor it would
+ * follow.
+ *
+ * It marks the seam between two *footprints* — the predecessor's end plus its
+ * after-buffer, and the follower's start minus its before-buffer — rather than
+ * between the two block edges, because the buffers are the thing the link
+ * actually preserves (§5.2). Purely informational and never interactive: it
+ * must not intercept the pointer that is mid-drag.
+ */
+function LinkSeam({
+  candidate,
+  follower,
+  predecessorTitle,
+  date,
+  timezone,
+}: {
+  candidate: LinkCandidate;
+  follower: Agenda;
+  predecessorTitle: string;
+  date: IsoDate;
+  timezone: string;
+}) {
+  const predecessorEnd =
+    topFor(candidate.predecessor.end_at, date, timezone) +
+    minutesToPx(candidate.predecessor.buffer_after_min);
+  const followerStart =
+    topFor(candidate.start, date, timezone) -
+    minutesToPx(follower.buffer_before_min);
+
+  const top = Math.min(predecessorEnd, followerStart);
+  const gap = Math.abs(followerStart - predecessorEnd);
+
+  return (
+    <div
+      aria-hidden
+      className="pointer-events-none absolute inset-x-0 z-30"
+      style={{ top }}
+    >
+      {gap > 1 ? (
+        <div className="absolute inset-x-0 bg-success/20" style={{ height: gap }} />
+      ) : null}
+      <div className="absolute inset-x-0 h-0.5 bg-success" />
+      {/* Right-aligned so it never sits on top of the block's own title. */}
+      <span className="absolute right-1 top-1 rounded-full bg-success px-1.5 py-px text-[9px] font-semibold text-bg">
+        {t.agenda.linkCueLabel(predecessorTitle)}
+      </span>
     </div>
   );
 }
