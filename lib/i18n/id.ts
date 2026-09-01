@@ -160,6 +160,7 @@ export const id = {
     emptyDayHint: "Tekan lama di jam mana pun untuk menaruh agenda.",
     newAgenda: "Agenda baru",
     newTimeBlock: "Blok waktu baru",
+    newEvent: "Event baru",
     outsideWindowConfirm: "Di luar jam produktif kamu. Tetap jadwalkan?",
     overPrayerConfirm:
       "Waktunya bentrok dengan blok sholat. Tetap jadwalkan di sini?",
@@ -183,6 +184,39 @@ export const id = {
     outsideWindowBadge: "Di luar jam produktif",
     gcalConflict: "Diubah dari Google Calendar",
     draft: "Draf",
+  },
+
+  event: {
+    title: "Event",
+    newTitle: "Event baru",
+    fieldTitle: "Nama event",
+    fieldLocation: "Lokasi",
+    fieldLocationHint: "Opsional",
+    fieldDate: "Tanggal",
+    fieldStart: "Mulai",
+    fieldEnd: "Selesai",
+    fieldRepeat: "Pengulangan",
+    repeatOnce: "Sekali",
+    repeatWeekly: "Mingguan",
+    repeatDays: "Hari",
+    repeatUntil: "Berulang sampai",
+    repeats: "Berulang",
+    endsNextDay: "Selesai keesokan harinya",
+    created: "Event dibuat.",
+    deleted: "Event dihapus.",
+    deleteConfirmTitle: "Hapus event?",
+    deleteConfirmBody:
+      "Semua pengulangannya ikut hilang, dan waktunya kembali bisa dijadwalkan.",
+    skipToday: "Lewati hari ini",
+    skipped: "Event dilewati hari ini.",
+    unskipped: "Event dikembalikan.",
+    skippedBadge: "Dilewati",
+    tapToRestore: "Ketuk untuk mengembalikan.",
+    createHint:
+      "Event memblok waktunya supaya tidak diisi todo. Buat dulu, lalu isi nama, lokasi, dan pengulangannya.",
+    pickKind: "Yang mau ditaruh",
+    kindAgenda: "Agenda",
+    kindEvent: "Event",
   },
 
   ticker: {

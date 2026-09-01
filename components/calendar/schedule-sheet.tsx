@@ -359,6 +359,7 @@ function ScheduleBody({
             prayers={world.prayers}
             timeBlocks={world.timeBlocks}
             agendas={agendas}
+            events={world.events}
             todosById={todosById}
             busy={world.busy.filter((b) => b.source === "gcal_busy")}
             durationMin={durationMin}

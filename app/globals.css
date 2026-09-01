@@ -34,6 +34,12 @@
   --overtime: #c084fc;
   --prayer: #57c9b6;
   --busy: #545b66;
+  /*
+   * Events — a commitment that is not a todo. Rose, chosen to sit well clear
+   * of the accent blue an agenda wears, of the prayer teal, and of the
+   * overtime violet; and warm enough not to be read as the p1 red.
+   */
+  --event: #ef7d9d;
 
   /*
    * §5.2 buffers. The two types mean different things and compose differently,
@@ -73,6 +79,7 @@
   --overtime: #8b46d6;
   --prayer: #1a8f80;
   --busy: #a7aeb9;
+  --event: #c2456b;
 
   --buffer-switch: #5b73a0;
   --buffer-commute: #966b41;
@@ -103,6 +110,7 @@
   --color-overtime: var(--overtime);
   --color-prayer: var(--prayer);
   --color-busy: var(--busy);
+  --color-event: var(--event);
   --color-buffer-switch: var(--buffer-switch);
   --color-buffer-commute: var(--buffer-commute);
   --color-ring: var(--ring);

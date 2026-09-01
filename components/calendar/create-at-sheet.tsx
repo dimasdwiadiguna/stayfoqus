@@ -3,20 +3,29 @@
 import * as React from "react";
 
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/field";
+import { Input, Segmented } from "@/components/ui/field";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { toast } from "@/components/ui/toast";
 import { useSettings } from "@/hooks/use-settings";
 import { useTaskData } from "@/hooks/use-tasks";
 import { createAgenda } from "@/lib/agendas/repo";
-import type { IsoDate, Todo } from "@/lib/db/schema";
+import { createEvent } from "@/lib/events/repo";
+import type { IsoDate, Todo, UUID } from "@/lib/db/schema";
 import { id as t } from "@/lib/i18n/id";
 import { haptic } from "@/lib/reward";
 import { sessionDurationMin } from "@/lib/scheduling";
 import { countersFor } from "@/lib/todos/derived";
 import { childrenBlockingStart, earliestStartFor } from "@/lib/todos/ordering";
-import { formatDateWithWeekday, localTime } from "@/lib/time";
+import {
+  formatDateWithWeekday,
+  localTime,
+  minutesFromMidnight,
+  minutesToHHmm,
+} from "@/lib/time";
 import { cn } from "@/lib/utils";
+
+/** A new event opens an hour long; the editor is one tap away to change it. */
+const DEFAULT_EVENT_MIN = 60;
 
 export interface CreateAtRequest {
   date: IsoDate;
@@ -35,9 +44,12 @@ export interface CreateAtRequest {
 export function CreateAtSheet({
   request,
   onClose,
+  onCreatedEvent,
 }: {
   request: CreateAtRequest | null;
   onClose: () => void;
+  /** Hands the new event straight to its editor, so it can be filled in. */
+  onCreatedEvent: (eventId: UUID, date: IsoDate) => void;
 }) {
   return (
     <Sheet open={Boolean(request)} onOpenChange={(open) => !open && onClose()}>
@@ -48,6 +60,7 @@ export function CreateAtSheet({
           key={request.startMs}
           request={request}
           onClose={onClose}
+          onCreatedEvent={onCreatedEvent}
         />
       ) : null}
     </Sheet>
@@ -57,14 +70,17 @@ export function CreateAtSheet({
 function CreateAtBody({
   request,
   onClose,
+  onCreatedEvent,
 }: {
   request: CreateAtRequest;
   onClose: () => void;
+  onCreatedEvent: (eventId: UUID, date: IsoDate) => void;
 }) {
   const settings = useSettings();
   const { todos, index, counters, agendas } = useTaskData();
   const [query, setQuery] = React.useState("");
   const [pomodoros, setPomodoros] = React.useState(1);
+  const [kind, setKind] = React.useState<"agenda" | "event">("agenda");
 
   const candidates = React.useMemo(() => {
     const open = todos.filter(
@@ -120,15 +136,65 @@ function CreateAtBody({
     onClose();
   };
 
+  const commitEvent = async () => {
+    const startTime = localTime(new Date(request.startMs), settings.timezone);
+    const endTime = minutesToHHmm(
+      (minutesFromMidnight(startTime) + DEFAULT_EVENT_MIN) % (24 * 60),
+    );
+    const created = await createEvent(
+      {
+        title: t.event.newTitle,
+        start_time: startTime,
+        end_time: endTime,
+        recurrence: "once",
+        specific_date: request.date,
+        // An event is a fact about the world, not a session to reset from:
+        // buffers start at zero and are added only where travel is real.
+        buffer_before_min: 0,
+        buffer_after_min: 0,
+      },
+      settings,
+    );
+    haptic();
+    onClose();
+    onCreatedEvent(created.id, request.date);
+  };
+
   return (
     <SheetContent
-      title={t.calendar.newAgenda}
+      title={kind === "event" ? t.calendar.newEvent : t.calendar.newAgenda}
       description={`${formatDateWithWeekday(request.date)} · ${localTime(
         new Date(request.startMs),
         settings.timezone,
       )}`}
     >
       <div className="space-y-3 pb-2">
+        {/*
+          The gesture already answered *when*; this answers *what*, which is
+          the only thing left to ask.
+        */}
+        <Segmented
+          ariaLabel={t.event.pickKind}
+          value={kind}
+          onChange={setKind}
+          className="w-full"
+          options={[
+            { value: "agenda" as const, label: t.event.kindAgenda },
+            { value: "event" as const, label: t.event.kindEvent },
+          ]}
+        />
+
+        {kind === "event" ? (
+          <div className="space-y-3">
+            <p className="text-[13px] leading-relaxed text-fg-muted">
+              {t.event.createHint}
+            </p>
+            <Button variant="primary" block onClick={() => void commitEvent()}>
+              {t.event.newTitle}
+            </Button>
+          </div>
+        ) : (
+          <>
         {/*
           The stepper shares the search row rather than owning one of its own:
           the list of todos is what this sheet is for, and every row above it
@@ -203,6 +269,8 @@ function CreateAtBody({
               );
             })}
           </ul>
+        )}
+          </>
         )}
       </div>
     </SheetContent>

@@ -4,6 +4,7 @@ import { EyeOff } from "lucide-react";
 import * as React from "react";
 
 import { AgendaBlock, type DropVerdict } from "@/components/calendar/agenda-block";
+import { EventBlock } from "@/components/calendar/event-block";
 import type { Agenda, IsoDate, Todo, UUID } from "@/lib/db/schema";
 import { id as t } from "@/lib/i18n/id";
 import {
@@ -15,6 +16,7 @@ import {
   topFor,
 } from "@/lib/calendar/geometry";
 import type {
+  EventInstance,
   LinkCandidate,
   PrayerBlock,
   TimeBlockInstance,
@@ -31,6 +33,10 @@ export interface TimelineDayProps {
   busy: readonly { start: number; end: number; label?: string }[];
   prayers: readonly PrayerBlock[];
   agendas: readonly Agenda[];
+  /** Commitments that are not todos, drawn beside the agendas (D-105). */
+  events: readonly EventInstance[];
+  /** Ids of events whose recurrence repeats, for the repeat mark. */
+  repeatingEventIds: ReadonlySet<UUID>;
   todosById: Map<UUID, Todo>;
   /** Completed focus pomodoros per agenda, for the §5.7 dot row. */
   completedByAgenda: Map<UUID, number>;
@@ -40,6 +46,7 @@ export interface TimelineDayProps {
   /** Top of the rendered band, so the empty-day hint lands where it is seen. */
   viewportTopPx: number;
   onOpenAgenda: (agenda: Agenda) => void;
+  onOpenEvent: (event: EventInstance) => void;
   onMoveAgenda: (
     agenda: Agenda,
     startMs: number,
@@ -72,6 +79,8 @@ export function TimelineDay({
   busy,
   prayers,
   agendas,
+  events,
+  repeatingEventIds,
   todosById,
   completedByAgenda,
   runningAgendaId,
@@ -79,6 +88,7 @@ export function TimelineDay({
   compact = false,
   viewportTopPx,
   onOpenAgenda,
+  onOpenEvent,
   onMoveAgenda,
   linkCandidateAt,
   evaluateDropAt,
@@ -94,20 +104,36 @@ export function TimelineDay({
   const within = (v: { start: number; end: number }) =>
     v.start < dayEnd && v.end > dayStart;
 
+  /**
+   * Agendas and events share one column layout.
+   *
+   * They have to: an event at the same hour as an agenda is exactly the
+   * collision D-036 splits into columns, and laying them out separately would
+   * put one squarely on top of the other.
+   */
   const laidOut = React.useMemo(
     () =>
-      layoutOverlaps(
-        agendas
+      layoutOverlaps([
+        ...agendas
           .map((agenda) => ({
+            kind: "agenda" as const,
             agenda,
             start: new Date(agenda.start_at).getTime(),
             end: new Date(agenda.end_at).getTime(),
           }))
           .filter(within),
-      ),
+        ...events
+          .map((event) => ({
+            kind: "event" as const,
+            event,
+            start: event.start,
+            end: event.end,
+          }))
+          .filter(within),
+      ]),
     // `within` closes over dayStart/dayEnd, which derive from date+timezone.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [agendas, dayStart, dayEnd],
+    [agendas, events, dayStart, dayEnd],
   );
 
   /**
@@ -302,13 +328,31 @@ export function TimelineDay({
         </div>
       ))}
 
-      {/* layers 4 & 5 — agendas, then drafts (drafts render last, on top) */}
+      {/*
+        layers 4 & 5 — events and agendas, then drafts (drafts render last, on
+        top). Events sort with the non-drafts: they are as committed as a
+        planned agenda, which is the whole point of having them.
+      */}
       {[...laidOut]
-        .sort((a, b) =>
-          Number(a.item.agenda.status === "draft") -
-          Number(b.item.agenda.status === "draft"),
+        .sort(
+          (a, b) =>
+            Number(a.item.kind === "agenda" && a.item.agenda.status === "draft") -
+            Number(b.item.kind === "agenda" && b.item.agenda.status === "draft"),
         )
-        .map(({ item, column, columns }) => (
+        .map(({ item, column, columns }) =>
+          item.kind === "event" ? (
+            <EventBlock
+              key={`event-${item.event.eventId}-${item.event.start}`}
+              event={item.event}
+              date={date}
+              timezone={timezone}
+              column={column}
+              columns={columns}
+              compact={compact}
+              repeats={repeatingEventIds.has(item.event.eventId)}
+              onOpen={() => onOpenEvent(item.event)}
+            />
+          ) : (
           <AgendaBlock
             key={item.agenda.id}
             agenda={item.agenda}
@@ -330,7 +374,8 @@ export function TimelineDay({
               )
             }
           />
-        ))}
+          ),
+        )}
 
       {/*
         Standing chains (D-091): a green spine down the left edge joining a

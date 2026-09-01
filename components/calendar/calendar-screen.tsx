@@ -18,6 +18,7 @@ import { BufferSwatch } from "@/components/calendar/buffer-band";
 import { PrayerShiftDialog } from "@/components/calendar/prayer-shift-dialog";
 import { DraftBar } from "@/components/calendar/draft-bar";
 import { TimelineScrollContext } from "@/components/calendar/scroll-context";
+import { EventSheet, type OpenEvent } from "@/components/calendar/event-sheet";
 import { PlanningWizard } from "@/components/planning/planning-wizard";
 import { ScheduleSheet } from "@/components/calendar/schedule-sheet";
 import { TaskDetailSheet } from "@/components/tasks/task-detail-sheet";
@@ -36,7 +37,7 @@ import {
 } from "@/lib/pomodoro/store";
 import { primeAudio } from "@/lib/pomodoro/audio";
 import { usePomodoroLogs, useTaskData } from "@/hooks/use-tasks";
-import { useSchedulingWorld } from "@/hooks/use-scheduling";
+import { useEvents, useSchedulingWorld } from "@/hooks/use-scheduling";
 import { useSettings } from "@/hooks/use-settings";
 import {
   deleteAgenda,
@@ -63,6 +64,7 @@ import {
   overlaps,
   violatedBlock,
   buildFreeSpace,
+  type EventInstance,
   type LinkCandidate,
   type PrayerAvoidance,
 } from "@/lib/scheduling";
@@ -118,6 +120,7 @@ export function CalendarScreen() {
   /** Off by default: the dead hours outside the productive band are hidden. */
   const [fullDay, setFullDay] = React.useState(false);
   const [scheduling, setScheduling] = React.useState<Todo | null>(null);
+  const [openEvent, setOpenEvent] = React.useState<OpenEvent | null>(null);
   const nowMs = useNow();
   const runningAgendaId = usePomodoroStore((s) => s.timer.agendaId);
 
@@ -143,6 +146,7 @@ export function CalendarScreen() {
   });
 
   const { todos, agendas, index, categories } = useTaskData();
+  const rawEvents = useEvents();
   const logs = usePomodoroLogs();
   const todosById = React.useMemo(
     () => new Map(todos.map((todo) => [todo.id, todo])),
@@ -158,6 +162,20 @@ export function CalendarScreen() {
     return map;
   }, [logs]);
 
+
+  const eventsForDay = React.useCallback(
+    (date: IsoDate) => world.events.filter((e) => e.date === date),
+    [world.events],
+  );
+
+  /** Which events repeat, so the block can wear the mark. */
+  const repeatingEventIds = React.useMemo(
+    () =>
+      new Set(
+        rawEvents.filter((e) => e.recurrence === "weekly").map((e) => e.id),
+      ),
+    [rawEvents],
+  );
 
   const agendasForDay = React.useCallback(
     (date: IsoDate) =>
@@ -612,9 +630,17 @@ export function CalendarScreen() {
           from={anchor}
           to={rangeTo}
           agendas={agendas}
+          events={world.events}
           timezone={settings.timezone}
           todosById={todosById}
           onOpen={(agenda) => setOpenAgendaId(agenda.id)}
+          onOpenEvent={(event) =>
+            setOpenEvent({
+              eventId: event.eventId,
+              date: event.date,
+              skipped: event.skipped,
+            })
+          }
         />
       ) : (
         <div
@@ -681,6 +707,8 @@ export function CalendarScreen() {
                       busy={world.busy.filter((b) => b.source === "gcal_busy")}
                       prayers={world.prayers.filter((p) => p.date === date)}
                       agendas={agendasForDay(date)}
+                      events={eventsForDay(date)}
+                      repeatingEventIds={repeatingEventIds}
                       todosById={todosById}
                       completedByAgenda={completedByAgenda}
                       runningAgendaId={runningAgendaId}
@@ -688,6 +716,13 @@ export function CalendarScreen() {
                       compact={view === "three"}
                       viewportTopPx={viewport.topPx}
                       onOpenAgenda={(agenda) => setOpenAgendaId(agenda.id)}
+                      onOpenEvent={(event) =>
+                        setOpenEvent({
+                          eventId: event.eventId,
+                          date: event.date,
+                          skipped: event.skipped,
+                        })
+                      }
                       onMoveAgenda={onMoveAgenda}
                       linkCandidateAt={linkCandidateAt}
                       evaluateDropAt={evaluateDropAt}
@@ -737,7 +772,15 @@ export function CalendarScreen() {
 
       <DraftBar />
 
-      <CreateAtSheet request={createAt} onClose={() => setCreateAt(null)} />
+      <CreateAtSheet
+        request={createAt}
+        onClose={() => setCreateAt(null)}
+        onCreatedEvent={(eventId, date) =>
+          setOpenEvent({ eventId, date, skipped: false })
+        }
+      />
+
+      <EventSheet open={openEvent} onClose={() => setOpenEvent(null)} />
 
       <AgendaSheet
         agendaId={openAgendaId}
@@ -886,36 +929,56 @@ export function CalendarScreen() {
   );
 }
 
+/** One row of the list view: an agenda, or an event. */
+type ListEntry =
+  | { kind: "agenda"; start: number; agenda: Agenda }
+  | { kind: "event"; start: number; event: EventInstance };
+
 function AgendaList({
   from,
   to,
   agendas,
+  events,
   timezone,
   todosById,
   onOpen,
+  onOpenEvent,
 }: {
   from: IsoDate;
   to: IsoDate;
   agendas: Agenda[];
+  events: readonly EventInstance[];
   timezone: string;
   todosById: Map<UUID, import("@/lib/db/schema").Todo>;
   onOpen: (agenda: Agenda) => void;
+  onOpenEvent: (event: EventInstance) => void;
 }) {
   const grouped = React.useMemo(() => {
-    const map = new Map<IsoDate, Agenda[]>();
+    const map = new Map<IsoDate, ListEntry[]>();
+    const push = (date: IsoDate, entry: ListEntry) => {
+      if (date < from || date > to) return;
+      const bucket = map.get(date);
+      if (bucket) bucket.push(entry);
+      else map.set(date, [entry]);
+    };
+
     for (const agenda of agendas) {
       if (agenda.status === "cancelled") continue;
-      const date = localDate(agenda.start_at, timezone);
-      if (date < from || date > to) continue;
-      const bucket = map.get(date);
-      if (bucket) bucket.push(agenda);
-      else map.set(date, [agenda]);
+      push(localDate(agenda.start_at, timezone), {
+        kind: "agenda",
+        start: new Date(agenda.start_at).getTime(),
+        agenda,
+      });
     }
-    for (const bucket of map.values()) {
-      bucket.sort((a, b) => a.start_at.localeCompare(b.start_at));
+    // Events belong here too: a day list that omitted the meeting would be a
+    // list of only half the day.
+    for (const event of events) {
+      push(event.date, { kind: "event", start: event.start, event });
     }
+
+    for (const bucket of map.values()) bucket.sort((a, b) => a.start - b.start);
     return [...map.entries()].sort(([a], [b]) => a.localeCompare(b));
-  }, [agendas, timezone, from, to]);
+  }, [agendas, events, timezone, from, to]);
 
   if (grouped.length === 0) {
     return <EmptyState title={t.calendar.emptyDay} />;
@@ -929,37 +992,79 @@ function AgendaList({
             {formatDateWithWeekday(date)}
           </h2>
           <ul>
-            {list.map((agenda) => (
-              <li key={agenda.id}>
+            {list.map((entry) =>
+              entry.kind === "event" ? (
+                <li key={`event-${entry.event.eventId}-${entry.event.start}`}>
+                  <button
+                    type="button"
+                    onClick={() => onOpenEvent(entry.event)}
+                    className={cn(
+                      "flex min-h-14 w-full items-center gap-3 border-b border-border/60 border-l-[3px] border-l-event px-4 py-2 text-left",
+                      entry.event.skipped && "opacity-45",
+                    )}
+                  >
+                    <span className="w-20 shrink-0 text-[12px] tabular-nums text-fg-muted">
+                      {formatTimeRange(
+                        new Date(entry.event.start).toISOString(),
+                        new Date(entry.event.end).toISOString(),
+                        timezone,
+                      )}
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span
+                        className={cn(
+                          "block truncate text-[15px]",
+                          entry.event.skipped && "line-through",
+                        )}
+                      >
+                        {entry.event.title}
+                      </span>
+                      <span className="text-[11px] text-event">
+                        {entry.event.skipped
+                          ? t.event.skippedBadge
+                          : (entry.event.location ?? t.event.title)}
+                      </span>
+                    </span>
+                  </button>
+                </li>
+              ) : (
+              <li key={entry.agenda.id}>
                 <button
                   type="button"
-                  onClick={() => onOpen(agenda)}
+                  onClick={() => onOpen(entry.agenda)}
                   className="flex min-h-14 w-full items-center gap-3 border-b border-border/60 px-4 py-2 text-left"
                 >
                   <span className="w-20 shrink-0 text-[12px] tabular-nums text-fg-muted">
-                    {formatTimeRange(agenda.start_at, agenda.end_at, timezone)}
+                    {formatTimeRange(
+                      entry.agenda.start_at,
+                      entry.agenda.end_at,
+                      timezone,
+                    )}
                   </span>
                   <span className="min-w-0 flex-1">
                     <span className="block truncate text-[15px]">
-                      {agenda.title_override ??
-                        todosById.get(agenda.todo_id)?.title ??
+                      {entry.agenda.title_override ??
+                        todosById.get(entry.agenda.todo_id)?.title ??
                         t.agenda.title}
                     </span>
                     <span
                       className={cn(
                         "text-[11px]",
-                        agenda.status === "missed"
+                        entry.agenda.status === "missed"
                           ? "text-danger"
                           : "text-fg-subtle",
                       )}
                     >
-                      {t.agenda.status[agenda.status]} ·{" "}
-                      {t.calendar.allocatedPomodoro(agenda.allocated_pomodoro)}
+                      {t.agenda.status[entry.agenda.status]} ·{" "}
+                      {t.calendar.allocatedPomodoro(
+                        entry.agenda.allocated_pomodoro,
+                      )}
                     </span>
                   </span>
                 </button>
               </li>
-            ))}
+              ),
+            )}
           </ul>
         </section>
       ))}
