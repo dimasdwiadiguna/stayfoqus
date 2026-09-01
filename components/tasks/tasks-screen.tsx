@@ -52,7 +52,6 @@ import {
   completeTodoWithPomodoro,
   completionContext,
   deleteTodo,
-  futurePlannedAgendas,
   incompleteChildren,
   reorderSiblings,
   restoreTodos,
@@ -62,7 +61,6 @@ import { blockersOf, childrenOf } from "@/lib/todos/tree";
 
 type PendingDialog =
   | { kind: "complete-parent"; todo: Todo; incomplete: number }
-  | { kind: "complete-with-agendas"; todo: Todo; agendas: number }
   | { kind: "delete-parent"; todo: Todo; children: number }
   | null;
 
@@ -122,27 +120,29 @@ export function TasksScreen({
    * the todo done. The reported number lands in today's completed *and*
    * planned counts — see `lib/todos/completion.ts`.
    */
-  const finishComplete = async (
-    todo: Todo,
-    reported: number,
-    removeFutureAgendas: boolean,
-  ) => {
+  const finishComplete = async (todo: Todo, reported: number) => {
     const hasSubtasks = childrenOf(data.index, todo.id).length > 0;
-    await completeTodoWithPomodoro(todo.id, reported, { removeFutureAgendas });
+    const undo = await completeTodoWithPomodoro(todo.id, reported);
     haptic([10, 40, 14]);
     if (hasSubtasks) void celebrate("todo-with-subtasks");
     setCompleting(null);
-    toast.undoable(t.tasks.completed, () => void uncompleteTodo(todo.id));
+    // The agendas that were still open went to `done` rather than being
+    // deleted (D-094), so the toast says so and the undo puts them back.
+    toast.undoable(
+      undo.agendas.length > 0
+        ? t.tasks.completedWithAgendas(undo.agendas.length)
+        : t.tasks.completed,
+      () => void uncompleteTodo(todo.id, undo),
+    );
   };
 
   /** Opens the pomodoro prompt, after any warning dialogs have been answered. */
-  const askPomodoro = async (todo: Todo, removeFutureAgendas: boolean) => {
+  const askPomodoro = async (todo: Todo) => {
     const context = await completionContext(todo.id);
     setCompleting({
       todo,
       suggested: context?.suggested ?? todo.estimated_pomodoro,
       alreadyToday: context?.alreadyToday ?? 0,
-      removeFutureAgendas,
     });
   };
 
@@ -158,13 +158,9 @@ export function TasksScreen({
       return;
     }
 
-    const future = await futurePlannedAgendas(todo.id);
-    if (future.length > 0) {
-      setDialog({ kind: "complete-with-agendas", todo, agendas: future.length });
-      return;
-    }
-
-    await askPomodoro(todo, false);
+    // No question about the outstanding agendas any more: they are marked
+    // done rather than deleted, which is not a decision worth a dialog.
+    await askPomodoro(todo);
   };
 
   /* ---------------- deletion (§4.2) ------------------------------------- */
@@ -350,11 +346,7 @@ export function TasksScreen({
         onCancel={() => setCompleting(null)}
         onConfirm={(reported) => {
           if (!completing) return;
-          void finishComplete(
-            completing.todo,
-            reported,
-            completing.removeFutureAgendas,
-          );
+          void finishComplete(completing.todo, reported);
         }}
       />
 
@@ -381,8 +373,7 @@ export function TasksScreen({
       <TaskDialogs
         dialog={dialog}
         onDismiss={() => setDialog(null)}
-        onCompleteAnyway={(todo) => void askPomodoro(todo, false)}
-        onCompleteRemovingAgendas={(todo) => void askPomodoro(todo, true)}
+        onCompleteAnyway={(todo) => void askPomodoro(todo)}
         onDelete={(todo, mode) => void runDelete(todo, mode)}
       />
     </Screen>
@@ -393,13 +384,11 @@ function TaskDialogs({
   dialog,
   onDismiss,
   onCompleteAnyway,
-  onCompleteRemovingAgendas,
   onDelete,
 }: {
   dialog: PendingDialog;
   onDismiss: () => void;
   onCompleteAnyway: (todo: Todo) => void;
-  onCompleteRemovingAgendas: (todo: Todo) => void;
   onDelete: (todo: Todo, mode: "cascade" | "promote") => void;
 }) {
   if (!dialog) return null;
@@ -413,22 +402,6 @@ function TaskDialogs({
         title={t.tasks.completeParentWarning(dialog.incomplete)}
         confirmLabel={t.tasks.completeAnyway}
         onConfirm={() => onCompleteAnyway(dialog.todo)}
-      />
-    );
-  }
-
-  if (dialog.kind === "complete-with-agendas") {
-    // §5.9: "Completing a todo that still has future planned agendas asks …
-    // default yes."
-    return (
-      <ConfirmDialog
-        open
-        onOpenChange={(open) => !open && onDismiss()}
-        title={t.tasks.hasFutureAgendas(dialog.agendas)}
-        confirmLabel={t.tasks.removeAgendas}
-        cancelLabel={t.tasks.keepAgendas}
-        onConfirm={() => onCompleteRemovingAgendas(dialog.todo)}
-        onCancel={() => onCompleteAnyway(dialog.todo)}
       />
     );
   }

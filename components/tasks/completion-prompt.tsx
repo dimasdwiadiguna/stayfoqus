@@ -11,8 +11,6 @@ export interface CompletionRequest {
   todo: Todo;
   suggested: number;
   alreadyToday: number;
-  /** Carried through from the §5.9 prompt that ran before this one. */
-  removeFutureAgendas: boolean;
 }
 
 /**

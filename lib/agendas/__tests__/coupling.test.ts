@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { isDayCleared, shouldPromptTodoDone, summariseDay } from "@/lib/agendas/coupling";
+import {
+  agendasImplyTodoDone,
+  isDayCleared,
+  shouldPromptTodoDone,
+  summariseDay,
+} from "@/lib/agendas/coupling";
 import { makeAgenda, makeLog, makeTodo } from "@/lib/todos/__tests__/fixtures";
 
 const NOW = Date.parse("2026-08-26T10:00:00.000Z");
@@ -143,5 +148,64 @@ describe("§9 — day summary", () => {
     );
     expect(summary.topCategoryId).toBeNull();
     expect(summary.pomodoroTotal).toBe(0);
+  });
+});
+
+describe("agendas that imply the todo is finished", () => {
+  it("completes a todo whose every agenda is done", () => {
+    const todo = makeTodo({ id: "t", estimated_pomodoro: 3 });
+    const agendas = [
+      makeAgenda({ id: "a", todo_id: "t", allocated_pomodoro: 2, status: "done", ...past }),
+      makeAgenda({ id: "b", todo_id: "t", allocated_pomodoro: 1, status: "done", ...past }),
+    ];
+    expect(agendasImplyTodoDone({ todo, agendas })).toBe(true);
+  });
+
+  it("waits while one agenda is still planned", () => {
+    const todo = makeTodo({ id: "t", estimated_pomodoro: 2 });
+    const agendas = [
+      makeAgenda({ id: "a", todo_id: "t", allocated_pomodoro: 1, status: "done", ...past }),
+      makeAgenda({ id: "b", todo_id: "t", allocated_pomodoro: 1, status: "planned", ...future }),
+    ];
+    expect(agendasImplyTodoDone({ todo, agendas })).toBe(false);
+  });
+
+  it("does not treat a partial agenda as finished", () => {
+    const todo = makeTodo({ id: "t", estimated_pomodoro: 2 });
+    const agendas = [
+      makeAgenda({ id: "a", todo_id: "t", allocated_pomodoro: 2, status: "partial", ...past }),
+    ];
+    expect(agendasImplyTodoDone({ todo, agendas })).toBe(false);
+  });
+
+  it("ignores drafts and cancelled rows on both sides of the question", () => {
+    const todo = makeTodo({ id: "t", estimated_pomodoro: 2 });
+    const agendas = [
+      makeAgenda({ id: "a", todo_id: "t", allocated_pomodoro: 2, status: "done", ...past }),
+      makeAgenda({ id: "b", todo_id: "t", allocated_pomodoro: 4, status: "draft", ...future }),
+      makeAgenda({ id: "c", todo_id: "t", allocated_pomodoro: 4, status: "cancelled", ...future }),
+    ];
+    expect(agendasImplyTodoDone({ todo, agendas })).toBe(true);
+  });
+
+  it("holds back while the estimate is larger than anything scheduled", () => {
+    // D-070 point 3: four pomodoros of this todo have never been planned, so
+    // running the two that were is not finishing it.
+    const todo = makeTodo({ id: "t", estimated_pomodoro: 6 });
+    const agendas = [
+      makeAgenda({ id: "a", todo_id: "t", allocated_pomodoro: 2, status: "done", ...past }),
+    ];
+    expect(agendasImplyTodoDone({ todo, agendas })).toBe(false);
+  });
+
+  it("says nothing about a todo with no agendas, or one already done", () => {
+    const todo = makeTodo({ id: "t", estimated_pomodoro: 1 });
+    expect(agendasImplyTodoDone({ todo, agendas: [] })).toBe(false);
+
+    const done = makeTodo({ id: "t", estimated_pomodoro: 1, status: "done" });
+    const agendas = [
+      makeAgenda({ id: "a", todo_id: "t", allocated_pomodoro: 1, status: "done", ...past }),
+    ];
+    expect(agendasImplyTodoDone({ todo: done, agendas })).toBe(false);
   });
 });

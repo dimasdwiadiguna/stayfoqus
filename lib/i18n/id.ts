@@ -127,9 +127,10 @@ export const id = {
     completedPomodoroAlready: (n: number) =>
       `${n} sudah tercatat hari ini — sisanya yang ditambahkan.`,
     completedPomodoroNone: "Tidak ada pomodoro",
-    hasFutureAgendas: (n: number) => `Hapus ${n} agenda yang belum jalan?`,
-    keepAgendas: "Biarkan",
-    removeAgendas: "Hapus agenda",
+    completedWithAgendas: (n: number) =>
+      `Tugas selesai. ${n} agenda ikut ditandai selesai.`,
+    autoCompleted: (title: string) =>
+      `Semua agenda "${title}" selesai — tugasnya ikut ditandai selesai.`,
   },
 
   priority: {
