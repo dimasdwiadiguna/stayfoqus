@@ -12,7 +12,10 @@ export default function AppLayout({
     // The top safe-area inset is applied here rather than on each screen's
     // header: whatever is first inside the shell — the ticker, or a header when
     // the ticker has nothing to say — must clear the notch exactly once.
-    <div className="safe-top flex h-dvh flex-col">
+    // `standalone:h-full` because iOS under-reports `dvh` by the top inset once
+    // the app is installed, leaving the tab bar short of the screen; see the
+    // custom variant in globals.css.
+    <div className="safe-top flex h-dvh standalone:h-full flex-col">
       {/* Above every screen, so "what now, what next" is never a tab away. */}
       <NowTicker />
       {children}

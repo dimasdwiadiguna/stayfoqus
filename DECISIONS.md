@@ -1530,3 +1530,54 @@ Two smaller choices:
 The safe-area inset moved from each screen's header to the app shell as a
 consequence: whatever comes first inside it — the ticker, or a header on the day
 the ticker has nothing to say — has to clear the notch exactly once.
+
+### D-104 · The shell is sized against the ICB once installed — **Bug reported from the device**
+
+Reported as an empty band under the bottom navigation bar. Measured off the
+screenshot (828×1792 px = 414×896 pt, iPhone 11 class), reading colour changes
+down the centre column:
+
+| band | pt | height | colour |
+|---|---|---|---|
+| top inset | 0–48 | 48 | `#f7f8fa` (page background) |
+| ticker | 48–78 | 30 | `#ffffff` (surface) |
+| tab bar | 762–848 | **86** | `#ffffff` (surface) |
+| the gap | 848–896 | **48** | `#f7f8fa` (page background) |
+
+Three things follow from those numbers, and they rule out the obvious suspect:
+
+1. **The tab bar is correct.** 86 = 52 (`min-h-[3.25rem]`) + 34
+   (`env(safe-area-inset-bottom)`). `safe-bottom` is doing its job, and the home
+   indicator is drawn inside the *gap*, not inside the bar.
+2. **The gap is 48, not 34** — so it is not a leftover bottom inset. 48 is this
+   device's `safe-area-inset-top`, and an identical 48 pt band sits at the top
+   of the screen.
+3. **The shell's box is 848 tall on an 896 pt screen.** It is pinned to
+   `h-dvh`, so the tab bar stops at the bottom of that box and the body colour
+   fills the rest.
+
+That the status-bar text is drawn *over* our top band proves the web view does
+cover the whole screen — `viewport-fit=cover` and the black-translucent status
+bar style are both in effect, and `env(safe-area-inset-top)` really is 48. Yet
+`100dvh` came back as 848 = 896 − 48. iOS under-reports `dvh` by exactly the top
+inset in an installed app with a translucent status bar.
+
+**Not introduced by the ticker (D-103).** The shell has been `h-dvh` since M0,
+so its bottom edge was always at 848 and the gap was always there. Moving the
+top inset from each screen's `<header>` onto the shell only made the matching
+48 pt band appear at the top as well, which is what made the pair legible.
+
+The fix is a `standalone` custom variant plus `standalone:h-full` on the shell:
+installed, the initial containing block is the honest number (`html`/`body` are
+`h-full` and the shell is a direct child of `body`); in a browser tab `dvh`
+stays, because there Safari's toolbars genuinely do change how much is visible
+and that is the whole reason the unit exists.
+
+**Limits of what was verified here.** There is no iOS in this environment, and
+Chromium reports `env()` as 0 and `dvh` as the full viewport, so the fault
+itself cannot be reproduced locally. What *was* checked: the generated rule
+(`@media (display-mode:standalone){.standalone\:h-full{height:100%}}`), that it
+follows `.h-dvh` in the cascade so it wins, that the browser-tab path is
+byte-for-byte unchanged, and that forcing the standalone height produces a sane
+layout — tab bar flush at 896, `document.body.scrollHeight` 896, no overflow.
+The standalone path itself is confirmed on the reporter's phone.
