@@ -112,13 +112,18 @@ export function BufferBand({
 export function BufferSwatch({
   type,
   className,
+  /** Drops the word, keeping the swatch and icon — for tight header rows. */
+  compact,
 }: {
   type: BufferType;
   className?: string;
+  compact?: boolean;
 }) {
   const commute = type === "commute";
   const color = commute ? "var(--buffer-commute)" : "var(--buffer-switch)";
   const Icon = commute ? Car : ArrowRightLeft;
+
+  const label = commute ? t.agenda.bufferCommute : t.agenda.bufferSwitch;
 
   return (
     <span
@@ -127,6 +132,8 @@ export function BufferSwatch({
         className,
       )}
       style={{ color }}
+      title={compact ? label : undefined}
+      aria-label={compact ? label : undefined}
     >
       <span
         aria-hidden
@@ -140,7 +147,7 @@ export function BufferSwatch({
         }}
       />
       <Icon className="size-3 shrink-0" strokeWidth={2.5} />
-      {commute ? t.agenda.bufferCommute : t.agenda.bufferSwitch}
+      {compact ? null : label}
     </span>
   );
 }

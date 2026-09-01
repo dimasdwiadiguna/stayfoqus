@@ -104,6 +104,12 @@ export function AgendaBlock({
   const deltaRef = React.useRef(0);
   /** Likewise for the pin: the last candidate seen, read at commit time. */
   const linkRef = React.useRef<LinkCandidate | null>(null);
+  /**
+   * A committed drag ends with a `click`, and by then `drag` is already back to
+   * null — so releasing a move used to open the agenda sheet on top of whatever
+   * the drop was asking. The release sets this; the click consumes it.
+   */
+  const swallowClickRef = React.useRef(false);
 
   const top =
     topFor(startMs, date, timezone) + (drag ? minutesToPx(drag.deltaMin) : 0);
@@ -266,7 +272,10 @@ export function AgendaBlock({
 
       // Committed outside the state updater, synchronously, so the write
       // cannot be lost to React's scheduling.
-      if (shouldCommit) onMove(startMs + deltaMin * MINUTE_MS, link);
+      if (shouldCommit) {
+        swallowClickRef.current = true;
+        onMove(startMs + deltaMin * MINUTE_MS, link);
+      }
     };
 
     window.addEventListener("pointermove", onPointerMove, { passive: false });
@@ -335,7 +344,13 @@ export function AgendaBlock({
         tabIndex={0}
         aria-label={`${title} ${timeRange}`}
         onPointerDown={beginDrag}
-        onClick={() => !drag && onOpen()}
+        onClick={() => {
+          if (swallowClickRef.current) {
+            swallowClickRef.current = false;
+            return;
+          }
+          if (!drag) onOpen();
+        }}
         onKeyDown={(e) => {
           if (e.key === "Enter" || e.key === " ") {
             e.preventDefault();

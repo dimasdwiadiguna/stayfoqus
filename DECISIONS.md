@@ -1377,3 +1377,52 @@ default.
 
 The calendar header lost two rows the same way — the full-width planning button
 became an icon beside the sync indicator, and the two-line totals became one.
+
+### D-099 · Long-press to create an agenda had never worked — **Bug found in the browser**
+
+Found while verifying the empty-day hint from D-098, which tells the user to
+long-press an empty hour. Doing so did nothing, on any part of any day.
+
+`TimelineDay`'s long-press handler is on the day column and guards with
+`e.target !== e.currentTarget`, so it only fires on bare column space. But every
+layer §7.2 stacks behind the agendas — the outside-window shading, each window
+band, all 24 hour rules, the time-block bands, the busy bands, the prayer blocks
+— is an absolutely positioned child covering that space. The shading alone is
+`inset-0`, so `e.target` was never the column and the gesture returned early
+*everywhere*. §8's "long-press empty area → create an agenda" had been dead
+since M4.
+
+D-086 records the identical trap in the slot picker, where one non-transparent
+decorative layer silently swallowed every tap; the fix there was to make all of
+them `pointer-events: none`. The same fix applies here, with `pointer-events:
+auto` restored on the one child that is a control — the time-block skip button
+from D-096.
+
+Worth stating as a rule rather than a fix, since this is twice: **in a layered
+timeline column, every layer is pointer-transparent unless it is a control.**
+A `target === currentTarget` guard cannot enforce it, because it fails silently
+and the feature merely looks implemented.
+
+### D-100 · A committed drag no longer opens the sheet behind its own dialog — **Bug found in the browser**
+
+Releasing a move fired the block's `onClick` as well. The guard was
+`onClick={() => !drag && onOpen()}`, but `cleanup` sets `drag` back to `null`
+synchronously *before* React processes the click, so the guard was always false
+by then. Every drag therefore ended with the agenda sheet opening — on top of
+whatever the drop was asking, whether that was the prayer-shift dialog or the
+link question.
+
+The release now sets a ref that the next click consumes. This is the same
+lesson as D-077, one layer up: gesture state that a later event has to read
+cannot live in React state, because the reset always wins the race.
+
+### D-101 · The buffer legend is icon-only in the header — **Bug found in the browser**
+
+With the legend on the same row as the view switch, "⇄ Ganti fokus" and
+"🚗 Perjalanan" ran off the right edge of a 390 px screen and took the new
+24-hour toggle with them. `BufferSwatch` gained a `compact` form that keeps the
+swatch and the icon and drops the word, with the word moved to `title` and
+`aria-label` so nothing is lost to a screen reader. The day's totals moved to a
+thin line of their own for the same reason — squeezed onto that row they
+truncated, and the figure that got cut was the free hours, the one of the three
+that actually drives a decision.

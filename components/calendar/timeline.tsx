@@ -37,6 +37,8 @@ export interface TimelineDayProps {
   runningAgendaId: UUID | null;
   nowMs: number | null;
   compact?: boolean;
+  /** Top of the rendered band, so the empty-day hint lands where it is seen. */
+  viewportTopPx: number;
   onOpenAgenda: (agenda: Agenda) => void;
   onMoveAgenda: (
     agenda: Agenda,
@@ -75,6 +77,7 @@ export function TimelineDay({
   runningAgendaId,
   nowMs,
   compact = false,
+  viewportTopPx,
   onOpenAgenda,
   onMoveAgenda,
   linkCandidateAt,
@@ -149,15 +152,26 @@ export function TimelineDay({
       onPointerUp={cancelPress}
       onPointerCancel={cancelPress}
     >
+      {/*
+        Every decorative layer is pointer-transparent. They are absolutely
+        positioned over the whole column, so without this the long-press that
+        creates an agenda never fired: `e.target !== e.currentTarget` matched on
+        the shading, and the gesture returned early everywhere on the day. The
+        same trap D-086 records for the slot picker.
+      */}
+
       {/* layer 0 — outside-window shading */}
-      <div aria-hidden className="absolute inset-0 bg-surface/40" />
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-0 bg-surface/40"
+      />
       {windows.filter(within).map((w, i) => {
         const c = clip(w);
         return (
           <div
             key={`w${i}`}
             aria-hidden
-            className="absolute inset-x-0 bg-bg"
+            className="pointer-events-none absolute inset-x-0 bg-bg"
             style={{ top: topFor(c.start, date, timezone), height: heightFor(c.start, c.end) }}
           />
         );
@@ -168,7 +182,7 @@ export function TimelineDay({
         <div
           key={hour}
           aria-hidden
-          className="absolute inset-x-0 border-t border-border/45"
+          className="pointer-events-none absolute inset-x-0 border-t border-border/45"
           style={{ top: hour * HOUR_HEIGHT }}
         />
       ))}
@@ -179,7 +193,7 @@ export function TimelineDay({
         return (
           <div
             key={`${block.timeBlockId}-${block.start}`}
-            className="absolute inset-x-0 border-y"
+            className="pointer-events-none absolute inset-x-0 border-y"
             style={{
               top: topFor(c.start, date, timezone),
               height: heightFor(c.start, c.end),
@@ -208,7 +222,7 @@ export function TimelineDay({
               onPointerDown={(e) => e.stopPropagation()}
               aria-label={t.settings.timeBlockSkipInstance}
               title={t.settings.timeBlockSkipInstance}
-              className="absolute right-0.5 top-0.5 grid size-6 place-items-center rounded opacity-70 hover:opacity-100"
+              className="pointer-events-auto absolute right-0.5 top-0.5 grid size-6 place-items-center rounded opacity-70 hover:opacity-100"
               style={{ color: block.color }}
             >
               <EyeOff className="size-3.5" />
@@ -223,7 +237,8 @@ export function TimelineDay({
         return (
           <div
             key={`b${i}`}
-            className="absolute inset-x-0 flex items-start bg-busy/20 px-1.5 py-0.5"
+            aria-hidden
+            className="pointer-events-none absolute inset-x-0 flex items-start bg-busy/20 px-1.5 py-0.5"
             style={{
               top: topFor(c.start, date, timezone),
               height: heightFor(c.start, c.end),
@@ -244,7 +259,8 @@ export function TimelineDay({
         return (
           <div
             key={`${p.key}-${p.start}`}
-            className="absolute inset-x-0 border-l-2 border-prayer bg-prayer/12 px-1.5 py-0.5"
+            aria-hidden
+            className="pointer-events-none absolute inset-x-0 border-l-2 border-prayer bg-prayer/12 px-1.5 py-0.5"
             style={{
               top: topFor(c.start, date, timezone),
               height: heightFor(c.start, c.end),
@@ -310,7 +326,7 @@ export function TimelineDay({
           <span
             key={`chain-${follower.id}`}
             aria-hidden
-            className="pointer-events-none absolute left-0 z-20 w-0.5 rounded-full bg-success/60"
+            className="pointer-events-none absolute left-0 z-20 w-1 rounded-full bg-success/70"
             style={{ top: from, height: to - from }}
           />
         );
@@ -344,7 +360,11 @@ export function TimelineDay({
       */}
       {laidOut.length === 0 ? (
         <div
-          className="pointer-events-none absolute inset-x-2 top-1/3 text-center text-[12px] leading-relaxed text-fg-subtle"
+          className="pointer-events-none absolute inset-x-2 text-center text-[12px] leading-relaxed text-fg-subtle"
+          // Anchored to the visible band rather than to the column: at a third
+          // of 2160 px the hint would sit at 08:00 and be off screen for most
+          // of the day.
+          style={{ top: viewportTopPx + 48 }}
         >
           {t.calendar.emptyDayHint}
         </div>
@@ -408,7 +428,8 @@ function LinkSeam({
         <div className="absolute inset-x-0 bg-success/20" style={{ height: gap }} />
       ) : null}
       <div className="absolute inset-x-0 h-0.5 bg-success" />
-      <span className="absolute left-1 top-1 rounded-full bg-success px-1.5 py-px text-[9px] font-semibold text-bg">
+      {/* Right-aligned so it never sits on top of the block's own title. */}
+      <span className="absolute right-1 top-1 rounded-full bg-success px-1.5 py-px text-[9px] font-semibold text-bg">
         {t.agenda.linkCueLabel(predecessorTitle)}
       </span>
     </div>

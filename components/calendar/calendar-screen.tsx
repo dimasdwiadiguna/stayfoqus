@@ -555,27 +555,21 @@ export function CalendarScreen() {
             />
             {view !== "list" ? (
               <>
-                <span className="min-w-0 flex-1 truncate text-right text-[11px] tabular-nums text-fg-subtle">
-                  {t.calendar.agendaCount(headerTotals.count)} ·{" "}
-                  {t.calendar.allocatedPomodoro(headerTotals.allocated)} ·{" "}
-                  {t.calendar.freeHours(
-                    formatHoursDecimal(headerTotals.freeMin),
-                  )}
-                </span>
                 {/*
                   §5.2's two buffer types are only useful if they can be told
                   apart on the timeline, so the key sits with the view it
                   explains — and only on days that have a buffer to decode.
                 */}
                 {hasBuffers ? (
-                  <span className="flex shrink-0 items-center gap-1.5">
-                    <BufferSwatch type="switch" />
-                    <BufferSwatch type="commute" />
+                  <span className="ml-auto flex shrink-0 items-center gap-2">
+                    <BufferSwatch type="switch" compact />
+                    <BufferSwatch type="commute" compact />
                   </span>
                 ) : null}
                 <Button
                   size="iconSm"
                   variant="ghost"
+                  className={hasBuffers ? undefined : "ml-auto"}
                   aria-label={
                     fullDay ? t.calendar.compactHours : t.calendar.fullDayHours
                   }
@@ -593,6 +587,19 @@ export function CalendarScreen() {
               </>
             ) : null}
           </div>
+
+          {/*
+            The day's totals on one thin line of their own. Squeezed onto the
+            row above they truncated on a 390px screen, and the figure lost was
+            the free hours — the one of the three that drives a decision.
+          */}
+          {view !== "list" ? (
+            <p className="text-[11px] tabular-nums text-fg-subtle">
+              {t.calendar.agendaCount(headerTotals.count)} ·{" "}
+              {t.calendar.allocatedPomodoro(headerTotals.allocated)} ·{" "}
+              {t.calendar.freeHours(formatHoursDecimal(headerTotals.freeMin))}
+            </p>
+          ) : null}
         </div>
       }
       // The timeline pane owns its scrolling; only the list view uses the
@@ -679,6 +686,7 @@ export function CalendarScreen() {
                       runningAgendaId={runningAgendaId}
                       nowMs={nowMs}
                       compact={view === "three"}
+                      viewportTopPx={viewport.topPx}
                       onOpenAgenda={(agenda) => setOpenAgendaId(agenda.id)}
                       onMoveAgenda={onMoveAgenda}
                       linkCandidateAt={linkCandidateAt}
