@@ -61,6 +61,7 @@ import {
   dragLinkCandidate,
   freeMinutes,
   isInsideWindow,
+  overlappingEvent,
   overlaps,
   violatedBlock,
   buildFreeSpace,
@@ -100,7 +101,7 @@ type PendingDrop = {
   /** The neighbour the drag was reaching for, if any. */
   link: LinkCandidate | null;
   phase: "prayer" | "constraint" | "link";
-  reason?: "outside-window" | "time-block";
+  reason?: "outside-window" | "time-block" | "event";
   blockName?: string;
   /** Only in the "prayer" phase: the block hit, and the ways around it. */
   avoidance?: PrayerAvoidance;
@@ -391,6 +392,23 @@ export function CalendarScreen() {
       }
     }
 
+    // An event is time the user has already spoken for by hand, so putting a
+    // todo on top of it is exactly the kind of thing §5.1/§5.4 confirm rather
+    // than forbid.
+    const clash = overlappingEvent(interval, world.events);
+    if (clash) {
+      setPendingDrop({
+        agenda,
+        start,
+        end,
+        link,
+        phase: "constraint",
+        reason: "event",
+        blockName: clash.title,
+      });
+      return;
+    }
+
     if (!isInsideWindow(interval, world.windows)) {
       setPendingDrop({
         agenda,
@@ -453,6 +471,7 @@ export function CalendarScreen() {
       if (world.prayers.some((prayer) => overlaps(interval, prayer))) {
         return "prayer";
       }
+      if (overlappingEvent(interval, world.events)) return "event";
       if (!isInsideWindow(interval, world.windows)) return "outside";
 
       const todo = todosById.get(agenda.todo_id);
@@ -472,7 +491,7 @@ export function CalendarScreen() {
       }
       return "ok";
     },
-    [world.prayers, world.windows, world.timeBlocks, todosById],
+    [world.prayers, world.events, world.windows, world.timeBlocks, todosById],
   );
 
   /**
@@ -865,14 +884,16 @@ export function CalendarScreen() {
         open={pendingDrop?.phase === "constraint"}
         onOpenChange={(open) => !open && setPendingDrop(null)}
         title={
-          pendingDrop?.reason === "time-block"
-            ? t.calendar.timeBlockConfirm(pendingDrop.blockName ?? "")
-            : t.calendar.outsideWindowConfirm
+          pendingDrop?.reason === "event"
+            ? t.calendar.eventConflictConfirm(pendingDrop.blockName ?? "")
+            : pendingDrop?.reason === "time-block"
+              ? t.calendar.timeBlockConfirm(pendingDrop.blockName ?? "")
+              : t.calendar.outsideWindowConfirm
         }
         confirmLabel={
-          pendingDrop?.reason === "time-block"
-            ? t.calendar.placeAnyway
-            : t.calendar.scheduleAnyway
+          pendingDrop?.reason === "outside-window"
+            ? t.calendar.scheduleAnyway
+            : t.calendar.placeAnyway
         }
         onConfirm={() => {
           if (!pendingDrop) return;

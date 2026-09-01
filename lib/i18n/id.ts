@@ -174,6 +174,8 @@ export const id = {
     prayerKeep: "Tetap di sini",
     overBusyConfirm:
       "Bentrok dengan acara di kalender lain. Tetap jadwalkan di sini?",
+    eventConflictConfirm: (name: string) =>
+      `Bentrok dengan "${name}". Tetap tempatkan di sini?`,
     timeBlockConfirm: (name: string) =>
       `Slot ini khusus ${name}. Tetap tempatkan di sini?`,
     scheduleAnyway: "Tetap jadwalkan",

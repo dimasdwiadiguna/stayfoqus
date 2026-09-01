@@ -25,6 +25,7 @@ import { haptic } from "@/lib/reward";
 import {
   avoidPrayer,
   isInsideWindow,
+  overlappingEvent,
   sessionDurationMin,
   suggestSlots,
   violatedBlock,
@@ -50,7 +51,7 @@ const PICK_DAYS = 3;
 type PickMode = "list" | "calendar" | "custom";
 
 type PendingConfirm = {
-  kind: "outside-window" | "time-block";
+  kind: "outside-window" | "time-block" | "event";
   blockName?: string;
   start: number;
   end: number;
@@ -237,6 +238,21 @@ function ScheduleBody({
         setAvoidance({ result, start, end, followsAgendaId });
         return;
       }
+    }
+
+    // Same soft confirmation as the calendar's own drop path, so scheduling
+    // through the Custom tab cannot quietly step over an event.
+    const clash = overlappingEvent(interval, world.events);
+    if (clash) {
+      setConfirm({
+        kind: "event",
+        blockName: clash.title,
+        start,
+        end,
+        pomodoros,
+        followsAgendaId,
+      });
+      return;
     }
 
     if (!isInsideWindow(interval, world.windows)) {
@@ -447,14 +463,16 @@ function ScheduleBody({
         open={confirm !== null}
         onOpenChange={(open) => !open && setConfirm(null)}
         title={
-          confirm?.kind === "time-block"
-            ? t.calendar.timeBlockConfirm(confirm.blockName ?? "")
-            : t.calendar.outsideWindowConfirm
+          confirm?.kind === "event"
+            ? t.calendar.eventConflictConfirm(confirm.blockName ?? "")
+            : confirm?.kind === "time-block"
+              ? t.calendar.timeBlockConfirm(confirm.blockName ?? "")
+              : t.calendar.outsideWindowConfirm
         }
         confirmLabel={
-          confirm?.kind === "time-block"
-            ? t.calendar.placeAnyway
-            : t.calendar.scheduleAnyway
+          confirm?.kind === "outside-window"
+            ? t.calendar.scheduleAnyway
+            : t.calendar.placeAnyway
         }
         onConfirm={() => {
           if (!confirm) return;
