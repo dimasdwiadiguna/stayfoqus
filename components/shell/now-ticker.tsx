@@ -2,6 +2,7 @@
 
 import {
   CalendarClock,
+  CalendarDays,
   Car,
   ChevronRight,
   CloudSun,
@@ -120,7 +121,9 @@ function Slot({
       ? PRAYER_ICONS[activity.prayerKey ?? "dhuhr"]
       : activity.kind === "commute"
         ? Car
-        : CalendarClock;
+        : activity.kind === "event"
+          ? CalendarDays
+          : CalendarClock;
 
   return (
     <span
@@ -132,9 +135,12 @@ function Slot({
             ? // The same bronze as the commute buffer band, so the strip and
               // the timeline speak one language (D-082).
               "text-buffer-commute"
-            : muted
-              ? "text-fg-muted"
-              : "text-fg",
+            : activity.kind === "event"
+              ? // And the same rose the event block wears.
+                "text-event"
+              : muted
+                ? "text-fg-muted"
+                : "text-fg",
       )}
     >
       <Icon className="size-3.5 shrink-0" aria-hidden />
@@ -156,8 +162,10 @@ function describeActivity(
     return t.settings.prayerNames[activity.prayerKey ?? "dhuhr"];
   }
 
-  const title = agendaTitle(activity.agendaId, agendas, todos);
-  if (activity.kind === "agenda") return title;
+  // An event owns its title; an agenda borrows one from its todo.
+  const title =
+    activity.title ?? agendaTitle(activity.agendaId, agendas, todos);
+  if (activity.kind === "agenda" || activity.kind === "event") return title;
   return activity.side === "before"
     ? t.ticker.commuteTo(title)
     : t.ticker.commuteFrom(title);
