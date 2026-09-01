@@ -8,6 +8,7 @@ import {
   PickTimeline,
   type PickDraft,
 } from "@/components/calendar/pick-timeline";
+import { PrayerShiftDialog } from "@/components/calendar/prayer-shift-dialog";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/dialog";
 import { Field, Input, Segmented } from "@/components/ui/field";
@@ -22,11 +23,13 @@ import type { Todo, UUID } from "@/lib/db/schema";
 import { id as t } from "@/lib/i18n/id";
 import { haptic } from "@/lib/reward";
 import {
+  avoidPrayer,
   isInsideWindow,
   sessionDurationMin,
   suggestSlots,
   violatedBlock,
   type PlacementCandidate,
+  type PrayerAvoidance,
 } from "@/lib/scheduling";
 import {
   addDays,
@@ -155,6 +158,12 @@ function ScheduleBody({
   const [manualDate, setManualDate] = React.useState(today);
   const [manualTime, setManualTime] = React.useState("09:00");
   const [confirm, setConfirm] = React.useState<PendingConfirm>(null);
+  const [avoidance, setAvoidance] = React.useState<{
+    result: PrayerAvoidance;
+    start: number;
+    end: number;
+    followsAgendaId: UUID | null;
+  } | null>(null);
 
   const floor = Math.max(now ?? 0, childFloor);
 
@@ -209,6 +218,7 @@ function ScheduleBody({
     start: number,
     end: number,
     followsAgendaId: UUID | null,
+    options: { skipPrayer?: boolean } = {},
   ) => {
     if (start < childFloor) {
       const blockers = childrenBlockingStart(index, todo.id, agendas, start);
@@ -217,6 +227,17 @@ function ScheduleBody({
     }
 
     const interval = { start, end };
+
+    // §5.3 — offer the way around a prayer block before asking whether to go
+    // through it. Asked first: accepting a shift changes what the window and
+    // time-block checks below would be judging.
+    if (!options.skipPrayer) {
+      const result = avoidPrayer(interval, world.prayers, world.free);
+      if (result) {
+        setAvoidance({ result, start, end, followsAgendaId });
+        return;
+      }
+    }
 
     if (!isInsideWindow(interval, world.windows)) {
       setConfirm({
@@ -395,6 +416,31 @@ function ScheduleBody({
           </Button>
         </div>
       ) : null}
+
+      <PrayerShiftDialog
+        avoidance={avoidance?.result ?? null}
+        timezone={settings.timezone}
+        onOpenChange={(open) => !open && setAvoidance(null)}
+        onShift={(interval) => {
+          setAvoidance(null);
+          setDraft((current) =>
+            current
+              ? { ...current, start: interval.start, end: interval.end, followsAgendaId: null }
+              : current,
+          );
+          // The pin described an abutment that no longer holds after a shift,
+          // so it is dropped rather than carried to a different instant.
+          submitManual(interval.start, interval.end, null);
+        }}
+        onKeep={() => {
+          if (!avoidance) return;
+          // Read from the pending state, not from `draft`: the custom tab
+          // reaches this dialog without ever placing one.
+          const { start, end, followsAgendaId } = avoidance;
+          setAvoidance(null);
+          submitManual(start, end, followsAgendaId, { skipPrayer: true });
+        }}
+      />
 
       <ConfirmDialog
         open={confirm !== null}

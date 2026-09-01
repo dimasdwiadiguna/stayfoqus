@@ -155,6 +155,14 @@ export const id = {
     outsideWindowConfirm: "Di luar jam produktif kamu. Tetap jadwalkan?",
     overPrayerConfirm:
       "Waktunya bentrok dengan blok sholat. Tetap jadwalkan di sini?",
+    prayerShiftTitle: (name: string) => `Bentrok dengan waktu ${name}`,
+    prayerShiftBody:
+      "Geser agar waktu sholat tetap utuh, atau tetap tempatkan di sini.",
+    prayerShiftEarlier: (range: string) => `Mundur ke ${range}`,
+    prayerShiftLater: (range: string) => `Maju ke ${range}`,
+    prayerNoSlot: (name: string) =>
+      `Tidak ada slot kosong sebelum atau sesudah ${name}. Kalau tetap ditempatkan, agenda ini menerobos waktu sholat.`,
+    prayerKeep: "Tetap di sini",
     overBusyConfirm:
       "Bentrok dengan acara di kalender lain. Tetap jadwalkan di sini?",
     timeBlockConfirm: (name: string) =>

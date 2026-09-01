@@ -9,6 +9,7 @@ import {
   type CreateAtRequest,
 } from "@/components/calendar/create-at-sheet";
 import { BufferSwatch } from "@/components/calendar/buffer-band";
+import { PrayerShiftDialog } from "@/components/calendar/prayer-shift-dialog";
 import { DraftBar } from "@/components/calendar/draft-bar";
 import { TimelineScrollContext } from "@/components/calendar/scroll-context";
 import { PlanningWizard } from "@/components/planning/planning-wizard";
@@ -40,12 +41,14 @@ import { HOUR_HEIGHT, instantForPx } from "@/lib/calendar/geometry";
 import type { Agenda, IsoDate, UUID } from "@/lib/db/schema";
 import { id as t } from "@/lib/i18n/id";
 import {
+  avoidPrayer,
   dragLinkCandidate,
   freeMinutes,
   isInsideWindow,
   violatedBlock,
   buildFreeSpace,
   type LinkCandidate,
+  type PrayerAvoidance,
 } from "@/lib/scheduling";
 import {
   addDays,
@@ -78,9 +81,11 @@ type PendingDrop = {
   end: number;
   /** The neighbour the drag was reaching for, if any. */
   link: LinkCandidate | null;
-  phase: "constraint" | "link";
+  phase: "prayer" | "constraint" | "link";
   reason?: "outside-window" | "time-block";
   blockName?: string;
+  /** Only in the "prayer" phase: the block hit, and the ways around it. */
+  avoidance?: PrayerAvoidance;
 } | null;
 
 export function CalendarScreen() {
@@ -243,6 +248,7 @@ export function CalendarScreen() {
     start: number,
     end: number,
     link: LinkCandidate | null,
+    options: { skipPrayer?: boolean } = {},
   ) => {
     const interval = { start, end };
     const todo = todosById.get(agenda.todo_id);
@@ -260,6 +266,25 @@ export function CalendarScreen() {
       );
       toast.error(t.agenda.parentBeforeChild(blockers.map((c) => c.title)));
       return;
+    }
+
+    // A prayer block is not a wall the user should have to bounce off: before
+    // asking whether to break it, offer the two placements that do not.
+    if (!options.skipPrayer) {
+      const avoidance = avoidPrayer(
+        interval,
+        world.prayers,
+        // The agenda being moved must not block its own way out, the same
+        // reason `useSchedulingWorld` grew `excludeAgendaIds` for reschedule.
+        buildFreeSpace(
+          world.windows,
+          world.busy.filter((b) => b.agendaId !== agenda.id),
+        ),
+      );
+      if (avoidance) {
+        setPendingDrop({ agenda, start, end, link, phase: "prayer", avoidance });
+        return;
+      }
     }
 
     if (!isInsideWindow(interval, world.windows)) {
@@ -548,7 +573,39 @@ export function CalendarScreen() {
         }}
       />
 
-      {/* §5.1 / §5.4 — the soft constraints, asked first. */}
+      {/*
+        §5.3 — a prayer block in the way. Asked before the soft constraints,
+        because accepting a shift changes the placement they would judge.
+      */}
+      <PrayerShiftDialog
+        avoidance={
+          pendingDrop?.phase === "prayer" ? (pendingDrop.avoidance ?? null) : null
+        }
+        timezone={settings.timezone}
+        onOpenChange={(open) => !open && setPendingDrop(null)}
+        onShift={(interval) => {
+          if (!pendingDrop) return;
+          const { agenda } = pendingDrop;
+          setPendingDrop(null);
+          // A shift is a fresh placement: it is re-checked against the window
+          // and the time blocks, and its pin is recomputed for the new start
+          // rather than carried over from where the finger let go.
+          requestMove(
+            agenda,
+            interval.start,
+            interval.end,
+            linkCandidateAt(agenda, interval.start),
+          );
+        }}
+        onKeep={() => {
+          if (!pendingDrop) return;
+          const { agenda, start, end, link } = pendingDrop;
+          setPendingDrop(null);
+          requestMove(agenda, start, end, link, { skipPrayer: true });
+        }}
+      />
+
+      {/* §5.1 / §5.4 — the soft constraints, asked next. */}
       <ConfirmDialog
         open={pendingDrop?.phase === "constraint"}
         onOpenChange={(open) => !open && setPendingDrop(null)}
