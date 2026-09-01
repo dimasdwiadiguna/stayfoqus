@@ -225,7 +225,6 @@ export const id = {
     label: "Aktivitas sekarang dan berikutnya",
     free: "Luang",
     nothingNext: "Tidak ada jadwal lagi",
-    soon: "sebentar lagi",
     commuteTo: (title: string) => `Berangkat ke ${title}`,
     commuteFrom: (title: string) => `Perjalanan dari ${title}`,
   },

@@ -2,7 +2,7 @@
 
 import * as React from "react";
 
-import { useNow } from "@/hooks/use-now";
+import { useTick } from "@/hooks/use-now";
 import { useSettings } from "@/hooks/use-settings";
 import { useEventExceptions, useEvents } from "@/hooks/use-scheduling";
 import { useAgendas } from "@/hooks/use-tasks";
@@ -34,7 +34,14 @@ export function useNowNext(): NowNext & { now: number | null } {
   const agendas = useAgendas();
   const rawEvents = useEvents();
   const eventExceptions = useEventExceptions();
-  const now = useNow();
+  /**
+   * One second, not thirty (D-107).
+   *
+   * The countdown shows seconds, and the same clock has to pick `current` and
+   * `next` — driving only the digits from it would leave the countdown sitting
+   * at zero until the 30-second clock caught up and the next activity arrived.
+   */
+  const now = useTick(1000);
 
   const today = now === null ? null : localDate(new Date(now), settings.timezone);
 
