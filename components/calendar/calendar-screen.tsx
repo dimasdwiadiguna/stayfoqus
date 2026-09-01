@@ -29,16 +29,23 @@ import { primeAudio } from "@/lib/pomodoro/audio";
 import { usePomodoroLogs, useTaskData } from "@/hooks/use-tasks";
 import { useSchedulingWorld } from "@/hooks/use-scheduling";
 import { useSettings } from "@/hooks/use-settings";
-import { deleteAgenda, restoreAgenda, updateAgenda } from "@/lib/agendas/repo";
+import {
+  deleteAgenda,
+  linkImmediatelyAfter,
+  restoreAgenda,
+  updateAgenda,
+} from "@/lib/agendas/repo";
 import { toggleSkip } from "@/lib/timeblocks/repo";
 import { HOUR_HEIGHT, instantForPx } from "@/lib/calendar/geometry";
 import type { Agenda, IsoDate, UUID } from "@/lib/db/schema";
 import { id as t } from "@/lib/i18n/id";
 import {
+  dragLinkCandidate,
   freeMinutes,
   isInsideWindow,
   violatedBlock,
   buildFreeSpace,
+  type LinkCandidate,
 } from "@/lib/scheduling";
 import {
   addDays,
@@ -56,11 +63,23 @@ type CalendarView = "day" | "three" | "list";
 
 const LIST_HORIZON_DAYS = 14;
 
-type PendingMove = {
+/**
+ * A drop waiting on an answer.
+ *
+ * Two questions can stand between releasing a block and writing it: the soft
+ * constraints of §5.1/§5.4, and — when the block came to rest against a
+ * neighbour — whether the user meant "immediately after" (D-091). They are
+ * asked in that order, one dialog at a time, because the second only matters
+ * once the placement itself is settled.
+ */
+type PendingDrop = {
   agenda: Agenda;
   start: number;
   end: number;
-  reason: "outside-window" | "time-block";
+  /** The neighbour the drag was reaching for, if any. */
+  link: LinkCandidate | null;
+  phase: "constraint" | "link";
+  reason?: "outside-window" | "time-block";
   blockName?: string;
 } | null;
 
@@ -71,7 +90,7 @@ export function CalendarScreen() {
   const [view, setView] = React.useState<CalendarView>("day");
   const [anchor, setAnchor] = React.useState<IsoDate>(today);
   const [openAgendaId, setOpenAgendaId] = React.useState<UUID | null>(null);
-  const [pendingMove, setPendingMove] = React.useState<PendingMove>(null);
+  const [pendingDrop, setPendingDrop] = React.useState<PendingDrop>(null);
   const [createAt, setCreateAt] = React.useState<CreateAtRequest | null>(null);
   const [planningOpen, setPlanningOpen] = React.useState(false);
   const nowMs = useNow();
@@ -184,15 +203,47 @@ export function CalendarScreen() {
     start: number,
     end: number,
     outside: boolean,
+    link: LinkCandidate | null,
   ) => {
+    // `follows_agenda_id` is always written explicitly: dragging a pinned
+    // agenda by hand releases its pin (D-087), so leaving the column alone
+    // would silently keep a link the user just overrode.
     await updateAgenda(agenda.id, {
       start_at: new Date(start).toISOString(),
       end_at: new Date(end).toISOString(),
       outside_window: outside,
+      follows_agenda_id: null,
     });
+
+    if (link) {
+      // Re-checked against live data rather than the drag-time snapshot; the
+      // cue already filtered cycles, this is the belt to that pair of braces.
+      const result = await linkImmediatelyAfter(agenda.id, link.predecessor.id);
+      if (!result.ok) toast.error(t.agenda.linkCycle);
+    }
   };
 
-  const requestMove = (agenda: Agenda, start: number, end: number) => {
+  /** Asks about the pin, once the placement itself is settled. */
+  const requestLink = (
+    agenda: Agenda,
+    start: number,
+    end: number,
+    outside: boolean,
+    link: LinkCandidate | null,
+  ) => {
+    if (!link) {
+      void commitMove(agenda, start, end, outside, null);
+      return;
+    }
+    setPendingDrop({ agenda, start, end, link, phase: "link", reason: undefined });
+  };
+
+  const requestMove = (
+    agenda: Agenda,
+    start: number,
+    end: number,
+    link: LinkCandidate | null,
+  ) => {
     const interval = { start, end };
     const todo = todosById.get(agenda.todo_id);
 
@@ -212,7 +263,14 @@ export function CalendarScreen() {
     }
 
     if (!isInsideWindow(interval, world.windows)) {
-      setPendingMove({ agenda, start, end, reason: "outside-window" });
+      setPendingDrop({
+        agenda,
+        start,
+        end,
+        link,
+        phase: "constraint",
+        reason: "outside-window",
+      });
       return;
     }
     const violated = todo
@@ -227,29 +285,48 @@ export function CalendarScreen() {
         )
       : null;
     if (violated) {
-      setPendingMove({
+      setPendingDrop({
         agenda,
         start,
         end,
+        link,
+        phase: "constraint",
         reason: "time-block",
         blockName: violated.name,
       });
       return;
     }
-    void commitMove(agenda, start, end, false);
+    requestLink(agenda, start, end, false, link);
   };
 
-  const onMoveAgenda = (agenda: Agenda, startMs: number) => {
+  const onMoveAgenda = (
+    agenda: Agenda,
+    startMs: number,
+    link: LinkCandidate | null,
+  ) => {
     const duration =
       new Date(agenda.end_at).getTime() - new Date(agenda.start_at).getTime();
-    requestMove(agenda, startMs, startMs + duration);
+    requestMove(agenda, startMs, startMs + duration, link);
   };
 
-  const onResizeAgenda = (agenda: Agenda, endMs: number) => {
-    const startMs = new Date(agenda.start_at).getTime();
-    if (endMs <= startMs) return;
-    requestMove(agenda, startMs, endMs);
-  };
+  /**
+   * What a block dragged to `startMs` would pin itself to.
+   *
+   * Answered here rather than inside the day column because `wouldCycle` has to
+   * walk the whole follow graph — a column only knows one day of it.
+   */
+  const linkCandidateAt = React.useCallback(
+    (agenda: Agenda, startMs: number) =>
+      dragLinkCandidate(agendas, {
+        id: agenda.id,
+        start: startMs,
+        bufferBefore: {
+          min: agenda.buffer_before_min,
+          type: agenda.buffer_before_type,
+        },
+      }),
+    [agendas],
+  );
 
   const onDeleteAgenda = async (agenda: Agenda) => {
     const removed = await deleteAgenda(agenda.id);
@@ -403,7 +480,7 @@ export function CalendarScreen() {
                     compact={view === "three"}
                     onOpenAgenda={(agenda) => setOpenAgendaId(agenda.id)}
                     onMoveAgenda={onMoveAgenda}
-                    onResizeAgenda={onResizeAgenda}
+                    linkCandidateAt={linkCandidateAt}
                     onToggleBlockSkip={(block) => {
                       void (async () => {
                         const skipped = await toggleSkip(
@@ -471,26 +548,68 @@ export function CalendarScreen() {
         }}
       />
 
+      {/* §5.1 / §5.4 — the soft constraints, asked first. */}
       <ConfirmDialog
-        open={pendingMove !== null}
-        onOpenChange={(open) => !open && setPendingMove(null)}
+        open={pendingDrop?.phase === "constraint"}
+        onOpenChange={(open) => !open && setPendingDrop(null)}
         title={
-          pendingMove?.reason === "time-block"
-            ? t.calendar.timeBlockConfirm(pendingMove.blockName ?? "")
+          pendingDrop?.reason === "time-block"
+            ? t.calendar.timeBlockConfirm(pendingDrop.blockName ?? "")
             : t.calendar.outsideWindowConfirm
         }
         confirmLabel={
-          pendingMove?.reason === "time-block"
+          pendingDrop?.reason === "time-block"
             ? t.calendar.placeAnyway
             : t.calendar.scheduleAnyway
         }
         onConfirm={() => {
-          if (!pendingMove) return;
+          if (!pendingDrop) return;
+          requestLink(
+            pendingDrop.agenda,
+            pendingDrop.start,
+            pendingDrop.end,
+            pendingDrop.reason === "outside-window",
+            pendingDrop.link,
+          );
+        }}
+      />
+
+      {/*
+        D-091 — the pin question. Three outcomes, exactly as D-024 established:
+        confirm links, the explicit cancel places without a link, and dismissing
+        answers nothing, so the block stays where it was.
+      */}
+      <ConfirmDialog
+        open={pendingDrop?.phase === "link"}
+        onOpenChange={(open) => !open && setPendingDrop(null)}
+        title={t.agenda.linkConfirmTitle(
+          pendingDrop?.link
+            ? (pendingDrop.link.predecessor.title_override ??
+              todosById.get(pendingDrop.link.predecessor.todo_id)?.title ??
+              t.agenda.title)
+            : "",
+        )}
+        description={t.agenda.linkConfirmBody}
+        confirmLabel={t.agenda.linkConfirmYes}
+        cancelLabel={t.agenda.linkConfirmNo}
+        onConfirm={() => {
+          if (!pendingDrop) return;
           void commitMove(
-            pendingMove.agenda,
-            pendingMove.start,
-            pendingMove.end,
-            pendingMove.reason === "outside-window",
+            pendingDrop.agenda,
+            pendingDrop.start,
+            pendingDrop.end,
+            pendingDrop.reason === "outside-window",
+            pendingDrop.link,
+          );
+        }}
+        onCancel={() => {
+          if (!pendingDrop) return;
+          void commitMove(
+            pendingDrop.agenda,
+            pendingDrop.start,
+            pendingDrop.end,
+            pendingDrop.reason === "outside-window",
+            null,
           );
         }}
       />

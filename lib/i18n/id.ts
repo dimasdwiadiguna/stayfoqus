@@ -204,6 +204,13 @@ export const id = {
       "Terkunci ke jam selesai buffer agenda sebelumnya — kalau agenda itu digeser, yang ini ikut.",
     immediatelyAfterBadge: "Mengikuti",
     linkCycle: "Tidak bisa: rantainya akan berputar.",
+    linkCueLabel: (title: string) => `Langsung setelah ${title}`,
+    linkConfirmTitle: (title: string) =>
+      `Tautkan agar mulai langsung setelah "${title}"?`,
+    linkConfirmBody:
+      "Kalau ditautkan, agenda ini ikut bergeser setiap agenda sebelumnya dipindah.",
+    linkConfirmYes: "Ya, tautkan",
+    linkConfirmNo: "Taruh di sini saja",
     suggestedSlots: "Slot yang disarankan",
     noSlots:
       "Tidak ada slot kosong yang cocok. Coba perpanjang jam produktif atau pilih waktu lain.",

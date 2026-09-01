@@ -16,24 +16,27 @@ import {
   snapMinutes,
   topFor,
 } from "@/lib/calendar/geometry";
-import { pomodorosForDuration, sessionDurationMin } from "@/lib/scheduling";
-import { useSettings } from "@/hooks/use-settings";
+import type { LinkCandidate } from "@/lib/scheduling";
 import { MINUTE_MS, formatTimeRange } from "@/lib/time";
 import { cn } from "@/lib/utils";
 
 /** How long a press must be held before the block starts moving (§8). */
 const MOVE_HOLD_MS = 200;
 const MOVE_TOLERANCE_PX = 8;
-const RESIZE_HANDLE_PX = 22;
 
 /**
  * One agenda on the timeline.
  *
- * §8 assigns two drags to this block: move (snapping to 5 minutes) and resize
- * from an edge (snapping to whole pomodoro durations). Move is gated behind a
- * 200 ms hold so it cannot hijack the timeline's vertical scroll — the same
- * constraint §8 fixes for the task list. The resize handles are small, explicit
- * targets, so they engage immediately.
+ * §8 assigns two drags to this block: move and resize from an edge. Resize was
+ * removed on request (D-090): on a 390 px screen the 22 px handle sat inside the
+ * move target and next to the scroll gesture, and since D-079 the duration
+ * presets in the agenda sheet are a better way to change a length anyway. The
+ * whole block is now one move surface, still gated behind a 200 ms hold so it
+ * cannot hijack the timeline's vertical scroll.
+ *
+ * While it moves, the block looks for a predecessor to pin itself to (D-091).
+ * When it finds one the preview snaps onto the exact chained start and the day
+ * column draws the green seam; releasing there asks whether to keep the link.
  */
 export function AgendaBlock({
   agenda,
@@ -47,7 +50,8 @@ export function AgendaBlock({
   running,
   onOpen,
   onMove,
-  onResize,
+  linkCandidateAt,
+  onLinkPreview,
 }: {
   agenda: Agenda;
   todo?: Todo;
@@ -59,22 +63,20 @@ export function AgendaBlock({
   completed: number;
   running: boolean;
   onOpen: () => void;
-  onMove: (startMs: number) => void;
-  onResize: (endMs: number) => void;
+  onMove: (startMs: number, link: LinkCandidate | null) => void;
+  /** Pure lookup, owned by the day column: what this start would pin to. */
+  linkCandidateAt: (startMs: number) => LinkCandidate | null;
+  /** Reports the live candidate so the column can draw the seam. */
+  onLinkPreview: (candidate: LinkCandidate | null) => void;
 }) {
-  const settings = useSettings();
   const scrollRef = useTimelineScroll();
-  const shape = {
-    focusMin: settings.pomodoro_focus_min,
-    shortBreakMin: settings.pomodoro_short_break_min,
-  };
 
   const startMs = new Date(agenda.start_at).getTime();
   const endMs = new Date(agenda.end_at).getTime();
 
   const [drag, setDrag] = React.useState<{
-    mode: "move" | "resize";
     deltaMin: number;
+    link: LinkCandidate | null;
   } | null>(null);
 
   /**
@@ -87,25 +89,19 @@ export function AgendaBlock({
    * The state drives the preview; this ref drives the write.
    */
   const deltaRef = React.useRef(0);
+  /** Likewise for the pin: the last candidate seen, read at commit time. */
+  const linkRef = React.useRef<LinkCandidate | null>(null);
 
   const top =
-    topFor(startMs, date, timezone) +
-    (drag?.mode === "move" ? minutesToPx(drag.deltaMin) : 0);
-  const baseHeight = heightFor(startMs, endMs);
-  const height =
-    drag?.mode === "resize"
-      ? Math.max(
-          minutesToPx(shape.focusMin),
-          baseHeight + minutesToPx(drag.deltaMin),
-        )
-      : baseHeight;
+    topFor(startMs, date, timezone) + (drag ? minutesToPx(drag.deltaMin) : 0);
+  const height = heightFor(startMs, endMs);
 
   const isDraft = agenda.status === "draft";
   const width = `calc(${100 / columns}% - 4px)`;
   const left = `calc(${(column * 100) / columns}% + 2px)`;
 
   /**
-   * Move and resize both start here.
+   * The move gesture.
    *
    * The block sets `touch-action: none`, so the browser never claims the
    * gesture — which is what made dragging almost impossible before: with
@@ -116,7 +112,7 @@ export function AgendaBlock({
    * arms (`armed`), vertical movement is forwarded to the timeline's scroll
    * pane by hand, so a swipe that happens to start on a block still scrolls.
    */
-  const beginDrag = (e: React.PointerEvent, mode: "move" | "resize") => {
+  const beginDrag = (e: React.PointerEvent) => {
     e.stopPropagation();
 
     const originY = e.clientY;
@@ -126,7 +122,7 @@ export function AgendaBlock({
     const pane = scrollRef?.current ?? null;
     const paneStartTop = pane?.scrollTop ?? 0;
 
-    let armed = mode === "resize";
+    let armed = false;
     /** Set once movement has been claimed as a scroll — no drag after that. */
     let scrolling = false;
     let holdTimer = 0;
@@ -135,7 +131,8 @@ export function AgendaBlock({
       if (scrolling) return;
       armed = true;
       deltaRef.current = 0;
-      setDrag({ mode, deltaMin: 0 });
+      linkRef.current = null;
+      setDrag({ deltaMin: 0, link: null });
       try {
         target.setPointerCapture(pointerId);
       } catch {
@@ -145,8 +142,7 @@ export function AgendaBlock({
       navigator.vibrate?.(8);
     };
 
-    if (mode === "move") holdTimer = window.setTimeout(arm, MOVE_HOLD_MS);
-    else arm();
+    holdTimer = window.setTimeout(arm, MOVE_HOLD_MS);
 
     const onPointerMove = (ev: PointerEvent) => {
       const dyPx = ev.clientY - originY;
@@ -171,13 +167,20 @@ export function AgendaBlock({
       }
 
       ev.preventDefault();
-      const rawMin = pxToMinutes(dyPx);
-      const deltaMin =
-        mode === "move"
-          ? snapMinutes(rawMin, MOVE_SNAP_MIN)
-          : snapToPomodoro(baseHeight, rawMin, shape);
+      let deltaMin = snapMinutes(pxToMinutes(dyPx), MOVE_SNAP_MIN);
+
+      // Magnet: within reach of a neighbour, the preview lands on the exact
+      // chained start rather than on the 5-minute grid, so releasing where the
+      // green line appears produces precisely the placement it described.
+      const candidate = linkCandidateAt(startMs + deltaMin * MINUTE_MS);
+      if (candidate) {
+        deltaMin = (candidate.start - startMs) / MINUTE_MS;
+      }
+
+      linkRef.current = candidate;
       deltaRef.current = deltaMin;
-      setDrag({ mode, deltaMin });
+      onLinkPreview(candidate);
+      setDrag({ deltaMin, link: candidate });
     };
 
     const onPointerUp = () => cleanup(true);
@@ -194,18 +197,18 @@ export function AgendaBlock({
       }
 
       const deltaMin = deltaRef.current;
+      const link = linkRef.current;
       const shouldCommit = commit && armed && !scrolling && deltaMin !== 0;
 
       armed = false;
       deltaRef.current = 0;
+      linkRef.current = null;
+      onLinkPreview(null);
       setDrag(null);
 
       // Committed outside the state updater, synchronously, so the write
       // cannot be lost to React's scheduling.
-      if (shouldCommit) {
-        if (mode === "move") onMove(startMs + deltaMin * MINUTE_MS);
-        else onResize(endMs + deltaMin * MINUTE_MS);
-      }
+      if (shouldCommit) onMove(startMs + deltaMin * MINUTE_MS, link);
     };
 
     window.addEventListener("pointermove", onPointerMove, { passive: false });
@@ -273,7 +276,7 @@ export function AgendaBlock({
         role="button"
         tabIndex={0}
         aria-label={`${title} ${timeRange}`}
-        onPointerDown={(e) => beginDrag(e, "move")}
+        onPointerDown={beginDrag}
         onClick={() => !drag && onOpen()}
         onKeyDown={(e) => {
           if (e.key === "Enter" || e.key === " ") {
@@ -290,6 +293,9 @@ export function AgendaBlock({
           agenda.status === "partial" && "border-warning/50 bg-warning/12",
           agenda.status === "missed" && "border-danger/50 bg-danger/12",
           drag && "shadow-lg ring-2 ring-accent",
+          // Pinned to a neighbour: the ring answers in the same green as the
+          // seam line, so the cue and its outcome read as one thing.
+          drag?.link && "ring-success",
         )}
         // The block owns the gesture; scrolling is forwarded by hand in
         // `beginDrag` so a swipe starting here still moves the timeline.
@@ -341,31 +347,7 @@ export function AgendaBlock({
             className="mt-1"
           />
         ) : null}
-
-        {/* resize handle — §8: snaps to whole pomodoro durations */}
-        <span
-          role="separator"
-          aria-label={t.agenda.fieldEnd}
-          onPointerDown={(e) => beginDrag(e, "resize")}
-          className="absolute inset-x-0 bottom-0 cursor-ns-resize"
-          style={{ height: RESIZE_HANDLE_PX, touchAction: "none" }}
-        />
       </div>
     </>
   );
-}
-
-/**
- * Resizing snaps the *resulting duration* onto the pomodoro ladder
- * (25/55/85/115…), so a block always represents a whole number of sessions.
- */
-function snapToPomodoro(
-  baseHeightPx: number,
-  rawDeltaMin: number,
-  shape: { focusMin: number; shortBreakMin: number },
-): number {
-  const currentMin = pxToMinutes(baseHeightPx);
-  const targetMin = currentMin + rawDeltaMin;
-  const n = Math.max(1, pomodorosForDuration(targetMin, shape));
-  return sessionDurationMin(n, shape) - currentMin;
 }

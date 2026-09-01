@@ -4,6 +4,7 @@ import {
   abuttingPredecessor,
   chainedStart,
   danglingLinks,
+  dragLinkCandidate,
   resolveChains,
   wouldCycle,
 } from "@/lib/scheduling/chain";
@@ -219,5 +220,82 @@ describe("offering the link", () => {
     expect(
       abuttingPredecessor([a, b], { start: ms("10:05"), bufferBefore: sw(0) })?.id,
     ).toBe("b");
+  });
+});
+
+describe("the predecessor a dragged block is reaching for", () => {
+  it("offers the block above once the drag comes within tolerance", () => {
+    const a = ag("a", "09:00", "10:00", { buffer_after_min: 10 });
+    const b = ag("b", "14:00", "15:00");
+
+    const found = dragLinkCandidate([a, b], {
+      id: "b",
+      start: ms("10:12"),
+      bufferBefore: sw(0),
+    });
+    expect(found?.predecessor.id).toBe("a");
+  });
+
+  it("returns exactly the instant `chainedStart` would produce", () => {
+    const a = ag("a", "09:00", "10:00", { buffer_after_min: 10 });
+    const b = ag("b", "14:00", "15:00", {
+      buffer_before_min: 20,
+      buffer_before_type: "commute",
+    });
+
+    const found = dragLinkCandidate([a, b], {
+      id: "b",
+      // 10 switch + 20 commute sum to 30 (§5.2), so the pin lands at 10:30.
+      start: ms("10:26"),
+      bufferBefore: cm(20),
+    });
+    expect(found?.start).toBe(
+      chainedStart(a, { buffer_before_min: 20, buffer_before_type: "commute" }),
+    );
+    expect(found?.start).toBe(ms("10:30"));
+  });
+
+  it("never offers the block being dragged as its own predecessor", () => {
+    const a = ag("a", "09:00", "10:00");
+    expect(
+      dragLinkCandidate([a], { id: "a", start: ms("10:00"), bufferBefore: sw(0) }),
+    ).toBeNull();
+  });
+
+  it("refuses a candidate that would close a loop", () => {
+    // a already follows b, so pinning b behind a would make a cycle. The cue
+    // must not offer what `linkImmediatelyAfter` will refuse.
+    const a = ag("a", "09:00", "10:00", { follows_agenda_id: "b" });
+    const b = ag("b", "11:00", "12:00");
+
+    expect(
+      dragLinkCandidate([a, b], {
+        id: "b",
+        start: ms("10:00"),
+        bufferBefore: sw(0),
+      }),
+    ).toBeNull();
+  });
+
+  it("is wider than the settled-placement offer, but still bounded", () => {
+    const a = ag("a", "09:00", "10:00");
+    const mover = (at: string) =>
+      dragLinkCandidate([a], { id: "b", start: ms(at), bufferBefore: sw(0) });
+
+    // 12 minutes away: too far for `abuttingPredecessor`, close enough to drag.
+    expect(abuttingPredecessor([a], { start: ms("10:12"), bufferBefore: sw(0) })).toBeNull();
+    expect(mover("10:12")?.predecessor.id).toBe("a");
+    expect(mover("10:20")).toBeNull();
+  });
+
+  it("skips a cancelled or deleted neighbour", () => {
+    const gone = ag("a", "09:00", "10:00", { status: "cancelled" });
+    expect(
+      dragLinkCandidate([gone], {
+        id: "b",
+        start: ms("10:00"),
+        bufferBefore: sw(0),
+      }),
+    ).toBeNull();
   });
 });

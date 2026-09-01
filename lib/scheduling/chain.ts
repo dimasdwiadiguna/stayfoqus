@@ -241,3 +241,54 @@ export function abuttingPredecessor(
 
   return best?.agenda ?? null;
 }
+
+/** A predecessor a dragged block could pin itself to, and where that puts it. */
+export interface LinkCandidate {
+  predecessor: Agenda;
+  /** The instant the block would start at once linked. */
+  start: number;
+}
+
+/**
+ * The predecessor a block being dragged is currently reaching for.
+ *
+ * The same idea as `abuttingPredecessor`, but for a live gesture rather than a
+ * settled placement, which changes three things:
+ *
+ * - **A wider tolerance.** This is the cue shown *while approaching*, not a
+ *   test of where something came to rest. 15 minutes is ~22 px at the timeline's
+ *   1.5 px/min, which is about how close a thumb gets before it means it.
+ * - **The mover is excluded**, along with anything that would close a loop.
+ *   `linkImmediatelyAfter` refuses a cycle, so offering one would be a promise
+ *   the drop could not keep — the green line must never lie.
+ * - **It returns the resolved start**, so the caller can snap the preview onto
+ *   it. Releasing where the line appears then produces exactly the placement the
+ *   line described.
+ *
+ * The gap itself still comes from `chainedStart`, i.e. §5.2's composed
+ * `required_gap` — one rule, not a second one that happens to agree.
+ */
+export function dragLinkCandidate(
+  agendas: readonly Agenda[],
+  mover: { id: UUID; start: number; bufferBefore: BufferSide },
+  toleranceMin = 15,
+): LinkCandidate | null {
+  const tolerance = toleranceMin * MINUTE;
+  let best: LinkCandidate & { distance: number } | null = null;
+
+  for (const agenda of agendas) {
+    if (agenda.id === mover.id) continue;
+    if (agenda.deleted_at || agenda.status === "cancelled") continue;
+    if (wouldCycle(agendas, mover.id, agenda.id)) continue;
+
+    const gap = requiredGapMin(sideAfter(agenda), mover.bufferBefore) * MINUTE;
+    const start = new Date(agenda.end_at).getTime() + gap;
+    const distance = Math.abs(mover.start - start);
+
+    if (distance <= tolerance && (!best || distance < best.distance)) {
+      best = { predecessor: agenda, start, distance };
+    }
+  }
+
+  return best ? { predecessor: best.predecessor, start: best.start } : null;
+}
