@@ -10,6 +10,11 @@ import type {
   UUID,
 } from "@/lib/db/schema";
 import { resolveWindows } from "@/lib/scheduling/availability";
+import {
+  agendaStops,
+  eventStopKey,
+  type CommuteStop,
+} from "@/lib/scheduling/commute";
 import { buildFreeSpace } from "@/lib/scheduling/freespace";
 import { activeEvents, expandEvents, type EventInstance } from "@/lib/scheduling/events";
 import { resolvePrayerBlocks } from "@/lib/scheduling/prayer";
@@ -168,6 +173,7 @@ export function toSchedulable(
     createdAt: todo.created_at,
     remainingToAllocate,
     blocked,
+    placeId: todo.place_id,
     parentId: todo.parent_id,
     depth,
   };
@@ -274,8 +280,22 @@ export function buildWorld(input: BuildWorldInput): SchedulingWorld {
     ...gcalBusy(input.gcalBusyEntries),
   ];
 
+  // The same stops the reconciler folds over, so a slot the suggester offers
+  // reserves exactly the journey the agenda will be given once it exists.
+  const stops: CommuteStop[] = [
+    ...agendaStops(input.agendas, timezone),
+    ...activeEvents(events).map((instance) => ({
+      key: eventStopKey(instance.eventId, instance.date),
+      date: instance.date,
+      start: instance.start,
+      placeId: instance.placeId,
+    })),
+  ];
+
   const free = buildFreeSpace(windows, busy, {
     minimumMinutes: input.minimumFreeMinutes,
+    homePlaceId: settings.home_place_id,
+    stops,
   });
 
   return {

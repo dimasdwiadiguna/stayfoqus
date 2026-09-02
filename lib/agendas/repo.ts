@@ -419,6 +419,9 @@ export async function discardDrafts(agendaIds: UUID[]): Promise<void> {
     // Drafts were never written to Google, so a plain soft delete suffices.
     await softDeleteRow("agendas", agendaId);
   }
+  // A draft *is* a waypoint while it exists, so throwing the batch away
+  // re-prices whatever was being reached through it.
+  await applyCommuteMoves();
 }
 
 /* ------------------------------------------------------------------ */

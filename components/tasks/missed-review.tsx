@@ -9,6 +9,7 @@ import { Checkbox, Chip } from "@/components/ui/field";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { toast } from "@/components/ui/toast";
 import { useNow } from "@/hooks/use-now";
+import { useCommutePricing } from "@/hooks/use-places";
 import { useSchedulingWorld } from "@/hooks/use-scheduling";
 import { useSettings } from "@/hooks/use-settings";
 import { useTaskData } from "@/hooks/use-tasks";
@@ -409,6 +410,8 @@ function RescheduleBody({
     excludeAgendaIds: React.useMemo(() => new Set([agenda.id]), [agenda.id]),
   });
 
+  const pricing = useCommutePricing(agenda.place_id);
+
   const slots = React.useMemo(
     () =>
       suggestSlots({
@@ -424,8 +427,9 @@ function RescheduleBody({
         pomodoros: agenda.allocated_pomodoro,
         limit: 3,
         notBefore: now ?? 0,
+        commute: pricing,
       }),
-    [todo, world, agenda.allocated_pomodoro, now],
+    [todo, world, agenda.allocated_pomodoro, now, pricing],
   );
 
   const moveTo = async (start: number, pomodoros: number) => {

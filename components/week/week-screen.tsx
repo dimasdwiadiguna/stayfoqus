@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/field";
 import { toast } from "@/components/ui/toast";
 import { useNow } from "@/hooks/use-now";
+import { usePlaceIndex } from "@/hooks/use-places";
 import { useSchedulingWorld } from "@/hooks/use-scheduling";
 import { useSettings } from "@/hooks/use-settings";
 import { useTaskData } from "@/hooks/use-tasks";
@@ -54,6 +55,7 @@ export function WeekScreen() {
   const to = days[6]!;
 
   const world = useSchedulingWorld({ from, to });
+  const places = usePlaceIndex();
 
   const targets = React.useMemo(
     () =>
@@ -137,6 +139,11 @@ export function WeekScreen() {
         buffers: world.buffers,
         notBefore: now ?? undefined,
         existingEndByTodo,
+        // Without these the allocator reserves the default buffer and the
+        // reconciler then widens it, so drafts placed back to back would
+        // overlap the moment they were applied.
+        places,
+        commuteSpeedKmh: settings.commute_speed_kmh,
         newId,
       });
 

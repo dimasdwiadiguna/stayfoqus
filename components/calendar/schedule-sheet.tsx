@@ -15,6 +15,7 @@ import { Field, Input, Segmented } from "@/components/ui/field";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { toast } from "@/components/ui/toast";
 import { useNow } from "@/hooks/use-now";
+import { useCommutePricing } from "@/hooks/use-places";
 import { useSchedulingWorld } from "@/hooks/use-scheduling";
 import { useSettings } from "@/hooks/use-settings";
 import { useTaskData } from "@/hooks/use-tasks";
@@ -195,6 +196,10 @@ function ScheduleBody({
 
   const floor = Math.max(now ?? 0, childFloor);
 
+  // Moving an agenda keeps that agenda's own location; scheduling a new one
+  // inherits the todo's.
+  const pricing = useCommutePricing(agenda ? agenda.place_id : todo.place_id);
+
   const slots = React.useMemo(
     () =>
       suggestSlots({
@@ -210,8 +215,11 @@ function ScheduleBody({
         pomodoros,
         limit: 5,
         notBefore: floor,
+        // So a slot is only offered if there is room for the journey to it as
+        // well — and so the gap it leaves is the one the agenda will be given.
+        commute: pricing,
       }),
-    [todo.category_id, todo.tags, todo.priority, world, pomodoros, floor],
+    [todo.category_id, todo.tags, todo.priority, world, pomodoros, floor, pricing],
   );
 
   const commit = async (

@@ -37,6 +37,7 @@ function todo(overrides: Partial<SchedulableTodo> = {}): SchedulableTodo {
     createdAt: "2026-08-01T00:00:00.000Z",
     remainingToAllocate: 1,
     blocked: false,
+    placeId: null,
     parentId: null,
     depth: 1,
     ...overrides,

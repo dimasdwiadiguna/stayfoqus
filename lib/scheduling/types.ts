@@ -51,6 +51,17 @@ export interface FreeInterval extends Interval {
   date: IsoDate;
   before: EdgeKind;
   after: EdgeKind;
+  /**
+   * Where you would be when this interval begins: home at the start of the day,
+   * otherwise the place of the last committed block before it.
+   *
+   * The free-space map's mirror of `resolveCommute`'s `lastPlace`, and the same
+   * fold — so what the suggester reserves for a journey is what the reconciler
+   * will later write onto the row. Null when there is nothing to go on (no home
+   * pin yet, or nothing placed today has a location), which reads as "no
+   * journey" everywhere.
+   */
+  originPlaceId: UUID | null;
 }
 
 /** An interval that blocks scheduling, with enough context to explain itself. */
@@ -111,6 +122,8 @@ export interface SchedulableTodo {
   remainingToAllocate: number;
   /** Blocked todos are excluded from smart allocation entirely (§4.2, §5.5). */
   blocked: boolean;
+  /** Where the work happens, so the allocator can charge the journey to it. */
+  placeId: UUID | null;
   /** Hierarchy parent, used to keep a parent from starting before its children. */
   parentId: UUID | null;
   /**

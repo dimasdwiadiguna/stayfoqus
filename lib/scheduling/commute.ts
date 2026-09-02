@@ -1,4 +1,5 @@
 import type { Agenda, Coordinate, IsoDate, Place, UUID } from "@/lib/db/schema";
+import type { BufferSide } from "@/lib/scheduling/types";
 import { localDate } from "@/lib/time";
 
 /**
@@ -215,13 +216,18 @@ export function resolveCommute(
 /**
  * The agenda statuses that put you somewhere.
  *
- * A `draft` was never a commitment and a `cancelled` one is not happening, so
- * neither moves you — the same exclusions D-103 makes for the ticker, for the
- * same reason. `done` and `partial` *are* included here, unlike in the ticker:
- * a morning that really happened at the office is exactly what makes the
- * afternoon's journey short.
+ * Only `cancelled` is left out: it is not happening, so it cannot move you.
+ *
+ * Two inclusions are worth stating, because the ticker (D-103) excludes both
+ * and this is a different question. `done` and `partial` count because a
+ * morning that really happened at the office is exactly what makes the
+ * afternoon's journey short. And a `draft` counts because the allocator
+ * threads its own placements through the free-space map as it goes — if the
+ * reconciler then ignored them, the space reserved for a second session at the
+ * same place and the buffer later written to it would disagree, which is the
+ * one thing these two must never do.
  */
-const CHAIN_STATUSES = new Set(["planned", "done", "partial", "missed"]);
+const CHAIN_STATUSES = new Set(["planned", "draft", "done", "partial", "missed"]);
 
 export function isChainAgenda(agenda: Agenda): boolean {
   return !agenda.deleted_at && CHAIN_STATUSES.has(agenda.status);
@@ -243,5 +249,46 @@ export function agendaStops(
 /** One occurrence of an event, keyed so it cannot collide with an agenda id. */
 export function eventStopKey(eventId: UUID, date: IsoDate): string {
   return `${eventId}|${date}`;
+}
+
+/* ------------------------------------------------------------------ */
+/* pricing a slot that does not exist yet                              */
+/* ------------------------------------------------------------------ */
+
+/** What the scheduler needs to price a journey to a candidate placement. */
+export interface CommutePricing {
+  /** Where the work being placed happens. Null → no journey is ever charged. */
+  placeId: UUID | null;
+  places: ReadonlyMap<UUID, Place>;
+  speedKmh: number;
+}
+
+/**
+ * The `before` buffer a candidate should be charged in a given free interval.
+ *
+ * This is the whole of the scheduler's commute-awareness, and deliberately so:
+ * §5.2's arithmetic does not change at all, only *which* `BufferSide` is handed
+ * to it. `edgePaddingMin` then composes the journey against the neighbour's own
+ * buffer exactly as it always has — max within a type, sum across types — so a
+ * slot after a switch-buffered block reserves reset + journey, and a slot after
+ * a longer commute reserves only the shortfall.
+ *
+ * Falls back to the user's default whenever there is no journey to charge: no
+ * location on the work, no origin to leave from, or already there.
+ */
+export function commuteBufferFor(
+  originPlaceId: UUID | null,
+  pricing: CommutePricing | undefined,
+  fallback: BufferSide,
+): BufferSide {
+  if (!pricing?.placeId) return fallback;
+
+  const minutes = travelMinutes(
+    originPlaceId ? (pricing.places.get(originPlaceId) ?? null) : null,
+    pricing.places.get(pricing.placeId) ?? null,
+    pricing.speedKmh,
+  );
+
+  return minutes > 0 ? { min: minutes, type: "commute" } : fallback;
 }
 

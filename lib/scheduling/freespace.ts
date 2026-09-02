@@ -1,4 +1,5 @@
 import type { IsoDate, UUID } from "@/lib/db/schema";
+import type { CommuteStop } from "@/lib/scheduling/commute";
 import { byStart } from "@/lib/scheduling/intervals";
 import type {
   BufferSide,
@@ -66,6 +67,22 @@ function toBlocker(busy: BusyInterval): Blocker {
 
 const WINDOW_EDGE: EdgeKind = { kind: "window" };
 
+export interface FreeSpaceOptions {
+  minimumMinutes?: number;
+  /**
+   * Where each day begins, for `FreeInterval.originPlaceId`. Omit and every
+   * interval reports `null`, i.e. no journey is ever charged — which is exactly
+   * the behaviour before places existed.
+   */
+  homePlaceId?: UUID | null;
+  /**
+   * The day's committed blocks, in the same shape the commute reconciler folds
+   * over. Passing the *same* stops is what keeps the space the suggester
+   * reserves identical to the buffer the row is later given.
+   */
+  stops?: readonly CommuteStop[];
+}
+
 /**
  * Subtracts every blocker from every window and returns the surviving gaps.
  *
@@ -76,10 +93,33 @@ const WINDOW_EDGE: EdgeKind = { kind: "window" };
 export function buildFreeSpace(
   windows: readonly WindowInstance[],
   busy: readonly BusyInterval[],
-  options: { minimumMinutes?: number } = {},
+  options: FreeSpaceOptions = {},
 ): FreeInterval[] {
   const minMs = (options.minimumMinutes ?? 0) * 60_000;
   const blockers = busy.map(toBlocker).sort(byStart);
+  const home = options.homePlaceId ?? null;
+
+  // Grouped by date and ordered, so the origin lookup is the same fold as
+  // `resolveCommute`: walk the day from home, and only a stop with a known
+  // location moves you.
+  const stopsByDate = new Map<IsoDate, CommuteStop[]>();
+  for (const stop of options.stops ?? []) {
+    if (!stop.placeId) continue;
+    const bucket = stopsByDate.get(stop.date);
+    if (bucket) bucket.push(stop);
+    else stopsByDate.set(stop.date, [stop]);
+  }
+  for (const bucket of stopsByDate.values()) bucket.sort((a, b) => a.start - b.start);
+
+  const originAt = (date: IsoDate, instant: number): UUID | null => {
+    let last = home;
+    for (const stop of stopsByDate.get(date) ?? []) {
+      if (stop.start > instant) break;
+      last = stop.placeId;
+    }
+    return last;
+  };
+
   const out: FreeInterval[] = [];
 
   for (const window of [...windows].sort(byStart)) {
@@ -99,6 +139,7 @@ export function buildFreeSpace(
             end,
             before: leadingEdge,
             after: blocker.edgeBefore,
+            originPlaceId: originAt(window.date, cursor),
           });
         }
       }
@@ -117,6 +158,7 @@ export function buildFreeSpace(
         end: window.end,
         before: leadingEdge,
         after: WINDOW_EDGE,
+        originPlaceId: originAt(window.date, cursor),
       });
     }
   }
@@ -132,6 +174,8 @@ export interface Placement {
   agendaId: UUID;
   bufferBefore: BufferSide;
   bufferAfter: BufferSide;
+  /** Where the placement happens, if anywhere. It becomes the new origin. */
+  placeId?: UUID | null;
 }
 
 /**
@@ -176,7 +220,14 @@ export function occupy(
       out.push({ ...interval, end: footprintStart, after: edgeBefore });
     }
     if (footprintEnd < interval.end) {
-      out.push({ ...interval, start: footprintEnd, before: edgeAfter });
+      out.push({
+        ...interval,
+        start: footprintEnd,
+        before: edgeAfter,
+        // Placing something somewhere puts you there: what follows is reached
+        // from the placement, not from wherever the interval used to start.
+        originPlaceId: placed.placeId ?? interval.originPlaceId,
+      });
     }
   }
 
