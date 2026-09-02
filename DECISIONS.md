@@ -1693,3 +1693,203 @@ a future colour inherits the treatment for free.
 The pulse runs always rather than only under five minutes — a countdown that
 sits still is just a number — and colour is what escalates. Both stay subject to
 `prefers-reduced-motion` through the global rule (D-007).
+
+---
+
+## Commute buffer dihitung dari jarak antar lokasi
+
+Requested: a commute buffer should be settable two ways — typed by hand, or
+computed from the distance between locations — assuming each day starts at
+home (which needs a map pin), with a location on an agenda or event producing
+a commute and no location producing none.
+
+Until now `commute` was only a *label*. §5.2 composed it correctly, D-082 drew
+it, D-103 announced it in the ticker — but the number was always typed. These
+entries record the rule that now produces it.
+
+### D-108 · The day is a fold over places, and an unlocated block does not move you — **Requested, new rule**
+
+`resolveCommute` (pure, `lib/scheduling/commute.ts`) walks each *local* day:
+
+```
+lastPlace = home at the start of the day
+stop has a place → travel(lastPlace → it); lastPlace = it
+stop has none    → no commute, and lastPlace does not move
+```
+
+The last clause is the whole reason this is a fold rather than a map over
+pairs, and it is the user's own framing ("jika tidak ada, dianggap tidak ada
+commute buffer") taken to its conclusion. Work with no location attached is
+done wherever you already are, so it is not a journey — and it must not
+teleport you either. An errand between two blocks at the office cannot make the
+second one look like a fresh trip from home.
+
+Stops are sorted inside the function rather than trusted, so the answer cannot
+depend on the order a live query happened to return, with the key as the final
+tiebreaker — the determinism D-062 established, for the same reason.
+
+**Home is deliberately not seeded.** `settings.latitude/longitude` already
+exist and would have been free to adopt, but they are the *prayer* coordinates
+and default to a city centre the user has never confirmed. Measuring every
+commute from a guess is worse than measuring none: without the pin the first
+block of each day simply gets no commute, and the rest of the chain — between
+places the user did choose — is still exactly right.
+
+### D-109 · The estimate is written only to the arriving side — **Interpreted**
+
+The schema allows one buffer type per side, and §5.2 takes the max within a
+type and sums across types. So with the seeded defaults (`after = 10 switch`):
+
+```
+switch_need  = max(10, 0) = 10
+commute_need = max(0,  T) = T
+required_gap = 10 + T
+```
+
+Reset *and* journey, composed by the rule that already existed, with nothing
+double-counted. Writing the journey to the departing block's `after` side as
+well would replace its switch buffer and silently delete the mental reset —
+which is precisely the overlap §5.2 exists to keep separate. `buffer_after_*`
+is therefore never touched by the reconciler.
+
+### D-110 · Agendas store the number; events derive it — **Interpreted**
+
+Asymmetric, and each half is principled.
+
+An **agenda** is one concrete instant. Its commute is a fact about that
+placement, and the scheduler has to reserve the space as part of the row's
+footprint (`agendaBusy` expands core ± buffers), so it is written to the row by
+`applyCommuteMoves` — the counterpart of `applyChainMoves`, called from the
+same places.
+
+An **event** is a *rule*: wall-clock time plus a recurrence. Tuesday's
+occurrence may be reached from the office and Friday's from home, so one number
+on the shared row would be wrong on most days. It is derived per occurrence
+onto `EventInstance.bufferBefore`, inside `expandEvents` — the function that
+already exists to project the rule onto a date.
+
+Both call the same `resolveCommute` over the same stops, so an agenda and an
+event on the same day cannot disagree about the chain.
+
+**Ordering inside `updateAgenda`: commute first, then chain.** `chainedStart`
+is computed *from* the buffers, so a pinned follower would land on a stale gap
+if the chain settled first. One pass each is enough, and the reason is worth
+stating because it looks like it should oscillate: a chain move shifts a
+follower in time but never reorders the day, so the commute it was just given
+is still the right one.
+
+### D-111 · The free-space map learns where you would be — **Filled a gap**
+
+Without this the allocator reserved the default buffer and the reconciler then
+widened it, so drafts placed back to back overlapped the moment they were
+applied.
+
+`FreeInterval` gained `originPlaceId`: where you would be when the interval
+begins. It is the map's mirror of `resolveCommute`'s `lastPlace`, computed by
+the same fold over the same stops — which is what makes the space a slot
+reserves identical to the buffer the row is later given.
+
+**No new arithmetic.** `commuteBufferFor` only decides *which* `BufferSide` a
+candidate is charged; `edgePaddingMin` composes it against the neighbour's own
+buffer exactly as before. A slot after a switch-buffered block reserves reset +
+journey; one after a longer commute reserves only the shortfall. The three §5.2
+worked examples are untouched and still pass.
+
+**A draft counts as a waypoint**, unlike in D-103's ticker. The allocator
+threads its own placements through the map as it goes, so if the reconciler
+ignored them, the space reserved for a second session at the same place and the
+buffer later written to it would disagree — the one thing these two must never
+do.
+
+### D-112 · Straight-line distance, corrected — no routing API — **Filled a gap**
+
+§3.1 forbids the UI blocking on the network and `docs/PHASE2.md` rules out
+server-side scheduling, so a routing API is out. The model is:
+
+```
+km      = haversine × 1.35            (COMMUTE_DETOUR_FACTOR)
+minutes = km / speed × 60 + 5         (COMMUTE_OVERHEAD_MIN)
+          rounded UP to the 5-minute grid
+```
+
+The detour factor sits at the low end of the usual 1.2–1.5 for a dense grid,
+because the flat overhead already covers the fixed costs and over-reserving
+fragments a day. Rounding is *up*, never nearest: a buffer slightly too long
+costs some slack, one slightly too short makes you late, and those are not
+symmetric. Below 150 m two pins are the same building with a different GPS fix
+and cost nothing.
+
+Speed presets are door-to-door averages: walk 4, motorbike 22, **car 18**. The
+car being slower is not a typo — in Indonesian city traffic a motorbike filters
+and parks almost anywhere while a car queues and then hunts for a space.
+
+Expect ±25% on a city trip. That is the right accuracy for something whose
+entire job is to be slack, and it is stated here so nobody later mistakes it
+for a routing result.
+
+### D-113 · Leaflet, and a pin that does not move — **Deviated (§2)**
+
+§2 fixes the tech stack and contains no map; a pin was asked for explicitly.
+Leaflet rather than MapLibre: raster OpenStreetMap tiles need no API key, and
+~45 KB against ~800 KB matters in a PWA whose point is opening instantly. No
+`react-leaflet` — the wrapper is ~120 lines and one fewer dependency to keep in
+step with React's majors. It is loaded through `next/dynamic` only when the
+picker opens, so it never enters the initial bundle.
+
+**The pin is fixed at the centre and the map moves beneath it.** That sidesteps
+Leaflet's default marker images, which break under every bundler because the
+CSS references them by relative path, and it is the better touch interaction
+anyway: a dragged marker spends the whole gesture under the user's thumb, which
+is exactly where they cannot see it.
+
+Tiles are the only part of this app that genuinely needs the network, so there
+are two fallbacks that do not — geolocation and manual coordinates — and a
+capped `CacheFirst` runtime cache in `app/sw.ts`, so a pin near home or the
+office still draws with the network off. Verified in a browser with tiles
+blocked: the map greys out, says so, and the coordinate fields still work.
+
+### D-114 · Manual always wins, and handing it back re-derives — **Requested**
+
+`commute_auto` (0/1, on agendas and events). Typing a buffer by hand sets it to
+0 inside `updateAgenda`/`updateEvent`, so the rule is structural rather than
+something each call site has to remember. The reconciler then never touches
+that row again until the user asks for the estimate back — and handing it back
+recomputes from the *current* day rather than restoring an old number, because
+the day has probably moved since.
+
+The two states are what the request's "manual atau dihitung" actually looks
+like in the sheet: with a location the figure is *shown* rather than asked for,
+with both ends and the distance next to it so it is explicable rather than
+magic, and one tap crosses in either direction.
+
+### D-115 · `ENTITY_TO_TABLE` was missing events — **Bug, found while editing the same map**
+
+Outside the request, and two lines. `lib/sync/engine.ts` mapped every outbox
+entity to its table except `event` and `event_exception`, which
+`TABLE_TO_ENTITY` had been producing since events were added. `pushEntry` threw
+`Unknown outbox entity: event`, the entry failed five times and was parked as
+`blocked` — so no event mutation ever reached Postgres. Invisible without
+Supabase configured (D-008 makes unconfigured behave like offline), which is
+why it survived.
+
+### Verification
+
+Checked in a real browser (390×844, Asia/Jakarta), driving the actual UI rather
+than the repositories, with two places 4.1 km apart:
+
+- **The chain, end to end.** Three blocks on one day came out as
+  `14:10 Kantor → 20 commute` (the journey from home), `15:20 Kantor →
+  0 switch` (already there), `15:55 no location → 0 switch` (not a journey, and
+  it did not move the chain).
+- **The sheet explains the number** — "20m · Rumah → Kantor · ± 4,1 km".
+- **The band and the ticker** — the bronze commute band draws in the twenty
+  real minutes before the block, and the ticker announced "Berangkat ke Rapat"
+  from the computed buffer.
+- **Manual and back** — "Atur manual" set `commute_auto = 0` and a typed 45 held
+  through a subsequent edit; "Hitung otomatis" restored 20 and set it back to 1.
+- **Tiles blocked** (the sandbox proxy refuses OpenStreetMap, which is the
+  offline case for free): the map greys out, says "Peta perlu internet", and the
+  coordinate fields still place the pin.
+
+`npm run lint`, `npm run typecheck`, `npm run build` clean; 340 Vitest tests
+green, including the three §5.2 worked examples unchanged.

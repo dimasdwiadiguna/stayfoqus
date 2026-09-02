@@ -100,7 +100,10 @@ export function CommuteField({
             {detail.fromName
               ? t.agenda.commuteFromTo(detail.fromName, detail.toName)
               : t.agenda.commuteFromUnknown(detail.toName)}
-            {detail.km > 0 ? ` · ${t.agenda.commuteDistance(detail.km.toFixed(1))}` : ""}
+            {detail.km > 0
+              ? // Indonesian decimals use a comma, as `formatHoursDecimal` does.
+                ` · ${t.agenda.commuteDistance(detail.km.toFixed(1).replace(".", ","))}`
+              : ""}
           </p>
         ) : null}
 

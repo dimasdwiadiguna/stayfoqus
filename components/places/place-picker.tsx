@@ -138,6 +138,7 @@ function PickerBody({
         <Field label={t.location.nameLabel}>
           <Input
             value={name}
+            aria-label={t.location.nameLabel}
             placeholder={t.location.namePlaceholder}
             onChange={(e) => setName(e.target.value)}
           />
@@ -148,6 +149,7 @@ function PickerBody({
             <Input
               type="number"
               step="0.0001"
+              aria-label={t.location.latitude}
               value={draft.latitude}
               onChange={(e) => {
                 const v = Number(e.target.value);
@@ -159,6 +161,7 @@ function PickerBody({
             <Input
               type="number"
               step="0.0001"
+              aria-label={t.location.longitude}
               value={draft.longitude}
               onChange={(e) => {
                 const v = Number(e.target.value);
