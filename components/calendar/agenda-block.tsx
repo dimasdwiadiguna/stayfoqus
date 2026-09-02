@@ -17,7 +17,7 @@ import {
   topFor,
 } from "@/lib/calendar/geometry";
 import type { LinkCandidate } from "@/lib/scheduling";
-import { MINUTE_MS, formatTimeRange } from "@/lib/time";
+import { MINUTE_MS, formatTimeRange, localTime } from "@/lib/time";
 import { cn } from "@/lib/utils";
 
 /** How long a press must be held before the block starts moving (§8). */
@@ -285,8 +285,27 @@ export function AgendaBlock({
 
   const title = agenda.title_override ?? todo?.title ?? t.agenda.title;
   const timeRange = formatTimeRange(agenda.start_at, agenda.end_at, timezone);
-  /** Below two lines of text, the title and the range share one row. */
-  const short = height < 40 || compact;
+
+  /**
+   * Below two lines of text, the title and the range share one row.
+   *
+   * Driven by height alone. `compact` used to force this too, which meant a
+   * three-hour block in the 3-day view — with room for four lines — still put
+   * its range on the title's row, and a `shrink-0` range ~85px wide left about
+   * one character of a ~130px column for the title. Narrowness is a reason to
+   * *stack*, never a reason to crowd one line.
+   */
+  const short = height < 40;
+
+  /**
+   * On a narrow column a one-line block cannot show both, so the start time
+   * stands in for the range: it is the half that answers "when", and the end is
+   * legible from the block's own extent. D-078's rule — never hide the time —
+   * is kept; only its precision gives way, and only where nothing else fits.
+   */
+  const stamp = short && compact
+    ? localTime(agenda.start_at, timezone)
+    : timeRange;
 
   const badges = (
     <>
@@ -396,7 +415,7 @@ export function AgendaBlock({
         {short ? (
           <div className="flex min-w-0 items-baseline gap-1.5">
             <span className="shrink-0 text-[10px] tabular-nums text-fg-muted">
-              {timeRange}
+              {stamp}
             </span>
             <span className="min-w-0 flex-1 truncate text-[12px] font-medium leading-tight">
               {title}
@@ -406,7 +425,14 @@ export function AgendaBlock({
         ) : (
           <>
             <div className="flex items-start gap-1">
-              <span className="min-w-0 flex-1 truncate text-[12px] font-medium leading-tight">
+              {/*
+                Two lines, not one. Overlapping blocks split the column (D-036),
+                so in the 3-day view a title can land in ~55px — where one
+                truncated line says "Men…" and nothing more. The block is tall
+                enough for a second line far more often than it is wide enough
+                for a long title.
+              */}
+              <span className="line-clamp-2 min-w-0 flex-1 text-[12px] font-medium leading-tight">
                 {title}
               </span>
               {badges}

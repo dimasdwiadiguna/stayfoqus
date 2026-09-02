@@ -4,13 +4,12 @@ import { useLiveQuery } from "dexie-react-hooks";
 import { CalendarClock, CheckCircle2, Inbox, PieChart, X } from "lucide-react";
 import * as React from "react";
 
+import { ScheduleSheet } from "@/components/calendar/schedule-sheet";
 import { Button } from "@/components/ui/button";
-import { Checkbox, Chip } from "@/components/ui/field";
+import { Checkbox } from "@/components/ui/field";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { toast } from "@/components/ui/toast";
 import { useNow } from "@/hooks/use-now";
-import { useCommutePricing } from "@/hooks/use-places";
-import { useSchedulingWorld } from "@/hooks/use-scheduling";
 import { useSettings } from "@/hooks/use-settings";
 import { useTaskData } from "@/hooks/use-tasks";
 import {
@@ -23,18 +22,8 @@ import { createRow, newId } from "@/lib/db/mutations";
 import type { Agenda, UUID } from "@/lib/db/schema";
 import { id as t } from "@/lib/i18n/id";
 import { haptic } from "@/lib/reward";
-import { sessionDurationMin, suggestSlots } from "@/lib/scheduling";
-import {
-  addDays,
-  formatDateWithWeekday,
-  formatTimeRange,
-  instantAt,
-  localDate,
-  localTime,
-} from "@/lib/time";
+import { formatDateWithWeekday, formatTimeRange, localDate } from "@/lib/time";
 import { cn } from "@/lib/utils";
-
-const RESCHEDULE_HORIZON_DAYS = 14;
 
 /**
  * §5.8 — missed agenda review.
@@ -118,6 +107,15 @@ function ReviewBody() {
     used: number;
   } | null>(null);
   const [rescheduling, setRescheduling] = React.useState<Agenda | null>(null);
+
+  // `ScheduleSheet` is opened by its todo and *moves* the agenda passed with it.
+  const rescheduleTodo = React.useMemo(
+    () =>
+      rescheduling
+        ? (todos.find((todo) => todo.id === rescheduling.todo_id) ?? null)
+        : null,
+    [rescheduling, todos],
+  );
 
   const titleOf = React.useCallback(
     (agenda: Agenda) =>
@@ -335,7 +333,17 @@ function ReviewBody() {
         ) : null}
       </Sheet>
 
-      <RescheduleSheet
+      {/*
+        §5.8's "Jadwalkan ulang" is the same question as scheduling anything
+        else, so it opens the same picker (D-106, one screen over). Its own
+        three chips plus a bare date/time pair skipped the calendar tab, the
+        prayer avoidance, the time-block confirmation, the event overlap check
+        and the parent-before-child refusal — every rule that makes a placement
+        trustworthy. Moving a missed agenda also restores it to `planned`,
+        which is what answering the review means.
+      */}
+      <ScheduleSheet
+        todo={rescheduleTodo}
         agenda={rescheduling}
         onClose={() => setRescheduling(null)}
       />
@@ -374,156 +382,6 @@ function ActionButton({
  * same free-space engine as smart allocation) as one-tap chips, plus 'Pilih
  * waktu lain…'."
  */
-function RescheduleSheet({
-  agenda,
-  onClose,
-}: {
-  agenda: Agenda | null;
-  onClose: () => void;
-}) {
-  return (
-    <Sheet open={Boolean(agenda)} onOpenChange={(next) => !next && onClose()}>
-      {agenda ? (
-        <RescheduleBody key={agenda.id} agenda={agenda} onClose={onClose} />
-      ) : null}
-    </Sheet>
-  );
-}
-
-function RescheduleBody({
-  agenda,
-  onClose,
-}: {
-  agenda: Agenda;
-  onClose: () => void;
-}) {
-  const settings = useSettings();
-  const now = useNow();
-  const { todos } = useTaskData();
-  const todo = todos.find((x) => x.id === agenda.todo_id);
-
-  const today = localDate(new Date(), settings.timezone);
-  const world = useSchedulingWorld({
-    from: today,
-    to: addDays(today, RESCHEDULE_HORIZON_DAYS),
-    // The agenda being moved must not block its own replacement slot.
-    excludeAgendaIds: React.useMemo(() => new Set([agenda.id]), [agenda.id]),
-  });
-
-  const pricing = useCommutePricing(agenda.place_id);
-
-  const slots = React.useMemo(
-    () =>
-      suggestSlots({
-        todo: {
-          categoryId: todo?.category_id ?? null,
-          tags: todo?.tags ?? [],
-          priority: todo?.priority ?? 4,
-        },
-        free: world.free,
-        timeBlocks: world.timeBlocks,
-        buffers: world.buffers,
-        shape: world.shape,
-        pomodoros: agenda.allocated_pomodoro,
-        limit: 3,
-        notBefore: now ?? 0,
-        commute: pricing,
-      }),
-    [todo, world, agenda.allocated_pomodoro, now, pricing],
-  );
-
-  const moveTo = async (start: number, pomodoros: number) => {
-    const end = start + sessionDurationMin(pomodoros, world.shape) * 60_000;
-    await updateAgenda(agenda.id, {
-      start_at: new Date(start).toISOString(),
-      end_at: new Date(end).toISOString(),
-      allocated_pomodoro: pomodoros,
-      status: "planned",
-    });
-    haptic();
-    toast.success(t.agenda.scheduled);
-    onClose();
-  };
-
-  return (
-    <SheetContent
-      title={t.missed.rescheduleTitle}
-      description={agenda.title_override ?? todo?.title ?? undefined}
-    >
-      <div className="space-y-3 pb-2">
-        {slots.length === 0 ? (
-          <p className="text-[13px] text-fg-subtle">{t.agenda.noSlots}</p>
-        ) : (
-          <div className="flex flex-col gap-1.5">
-            {slots.map((slot) => (
-              <Chip
-                key={slot.start}
-                className="min-h-12 justify-start px-3"
-                onClick={() => void moveTo(slot.start, slot.pomodoros)}
-              >
-                <CalendarClock className="size-4 text-accent" />
-                {formatDateWithWeekday(slot.date)} ·{" "}
-                {localTime(new Date(slot.start), settings.timezone)}
-              </Chip>
-            ))}
-          </div>
-        )}
-
-        <ManualReschedule
-          timezone={settings.timezone}
-          defaultDate={today}
-          onPick={(start) => void moveTo(start, agenda.allocated_pomodoro)}
-        />
-      </div>
-    </SheetContent>
-  );
-}
-
-function ManualReschedule({
-  timezone,
-  defaultDate,
-  onPick,
-}: {
-  timezone: string;
-  defaultDate: string;
-  onPick: (startMs: number) => void;
-}) {
-  const [date, setDate] = React.useState(defaultDate);
-  const [time, setTime] = React.useState("09:00");
-
-  return (
-    <div className="space-y-2 rounded-lg border border-border bg-surface-2 p-3">
-      <span className="text-[12px] font-medium text-fg-muted">
-        {t.agenda.pickAnotherTime}
-      </span>
-      <div className="flex gap-2">
-        <input
-          type="date"
-          value={date}
-          onChange={(e) => setDate(e.target.value)}
-          aria-label={t.agenda.fieldStart}
-          className="h-11 flex-1 rounded-lg border border-border bg-surface px-3 text-[15px]"
-        />
-        <input
-          type="time"
-          step={300}
-          value={time}
-          onChange={(e) => setTime(e.target.value)}
-          aria-label={t.agenda.fieldStart}
-          className="h-11 flex-1 rounded-lg border border-border bg-surface px-3 text-[15px]"
-        />
-      </div>
-      <Button
-        block
-        // Built through the timezone boundary, never from a naive string (§13).
-        onClick={() => onPick(instantAt(date, time, timezone).getTime())}
-      >
-        {t.common.save}
-      </Button>
-    </div>
-  );
-}
-
 async function countCompletedLogs(agendaId: UUID): Promise<number> {
   const logs = await getDb().pomodoro_logs.where("agenda_id").equals(agendaId).toArray();
   return logs.filter(

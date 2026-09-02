@@ -1,8 +1,9 @@
 "use client";
 
-import { MapPin } from "lucide-react";
+import { MapPin, Pencil } from "lucide-react";
 import * as React from "react";
 
+import { PlaceEditorSheet } from "@/components/places/place-editor";
 import { PlacePicker } from "@/components/places/place-picker";
 import { Row, Section } from "@/components/settings/section";
 import { Button } from "@/components/ui/button";
@@ -10,7 +11,6 @@ import { Chip, Input } from "@/components/ui/field";
 import { usePlaces } from "@/hooks/use-places";
 import { updateSettings, useSettings } from "@/hooks/use-settings";
 import { id as t } from "@/lib/i18n/id";
-import { updatePlace } from "@/lib/places/repo";
 import { COMMUTE_SPEED_PRESETS } from "@/lib/scheduling/commute";
 
 /**
@@ -26,6 +26,7 @@ export function LocationSection() {
   const settings = useSettings();
   const places = usePlaces();
   const [pickingHome, setPickingHome] = React.useState(false);
+  const [editing, setEditing] = React.useState<{ placeId: string } | null>(null);
   const [custom, setCustom] = React.useState(false);
 
   const home = places.find((p) => p.id === settings.home_place_id);
@@ -111,31 +112,38 @@ export function LocationSection() {
         {places.length === 0 ? (
           <p className="text-[13px] text-fg-subtle">{t.settings.noSavedPlaces}</p>
         ) : (
+          /*
+            A row opens the full editor rather than being an inline rename box.
+            The box could only ever change the name — the coordinates, the thing
+            the estimate is actually made of, had nowhere to be corrected — and
+            an unlabelled input in a settings list does not read as editable in
+            the first place.
+          */
           <ul className="space-y-1">
             {places.map((place) => (
-              <li
-                key={place.id}
-                className="flex items-center justify-between gap-2 rounded-lg border border-border bg-surface-2 px-3 py-2"
-              >
-                <Input
-                  className="border-0 bg-transparent px-0"
-                  defaultValue={place.name}
-                  aria-label={t.location.rename}
-                  onBlur={(e) => {
-                    const name = e.target.value.trim();
-                    if (name && name !== place.name) {
-                      void updatePlace(place.id, { name });
-                    }
-                  }}
-                />
-                <span className="shrink-0 text-[12px] tabular-nums text-fg-subtle">
-                  {t.location.coordinates(place.latitude, place.longitude)}
-                </span>
+              <li key={place.id}>
+                <button
+                  type="button"
+                  onClick={() => setEditing({ placeId: place.id })}
+                  className="flex min-h-11 w-full items-center justify-between gap-2 rounded-lg border border-border bg-surface-2 px-3 py-2 text-left"
+                >
+                  <span className="min-w-0 truncate text-[15px]">{place.name}</span>
+                  <span className="flex shrink-0 items-center gap-2 text-[12px] tabular-nums text-fg-subtle">
+                    {t.location.coordinates(place.latitude, place.longitude)}
+                    <Pencil className="size-3.5" aria-hidden />
+                  </span>
+                </button>
               </li>
             ))}
           </ul>
         )}
       </div>
+
+      <PlaceEditorSheet
+        placeId={editing?.placeId ?? null}
+        open={editing !== null}
+        onClose={() => setEditing(null)}
+      />
 
       <PlacePicker
         open={pickingHome}

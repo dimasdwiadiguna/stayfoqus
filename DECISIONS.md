@@ -1893,3 +1893,110 @@ than the repositories, with two places 4.1 km apart:
 
 `npm run lint`, `npm run typecheck`, `npm run build` clean; 340 Vitest tests
 green, including the three §5.2 worked examples unchanged.
+
+---
+
+## Perbaikan setelah pemakaian: judul di 3 hari, reschedule, dan editor tempat
+
+Three things reported from the device. Each turned out to be a rule rather than
+a component, so each is recorded.
+
+### D-116 · A narrow column is a reason to stack, never to crowd one line — **Bug**
+
+Reported as a title showing a single character in the 3-day view.
+
+`AgendaBlock` and `EventBlock` both computed `short = height < 40 || compact`.
+D-078 introduced that: a one-pomodoro block is ~38px and used to hide its time
+range entirely, so short blocks put the range *beside* the title. But `compact`
+(the 3-day view) forced the same layout regardless of height — and there the
+range is `shrink-0` at ~85px inside a ~110px column, leaving the title about
+one character. A three-hour block with room for four lines was being squeezed
+onto one.
+
+Narrowness and shortness are opposite problems and were being answered with the
+same layout:
+
+- `short` is now **height alone**. A tall block in a narrow column stacks, which
+  is what the space actually allows.
+- Where a block genuinely is one line *and* the column is narrow, the **start
+  time** stands in for the range. D-078's rule — never hide the time — is kept;
+  only its precision gives way, and only where nothing else fits. The end is
+  legible from the block's own extent anyway.
+- The stacked title is `line-clamp-2`. Overlapping blocks split the column
+  (D-036), so two of them in a 3-day view land in ~45px each; a second line
+  buys back most of what that costs. **Without** `break-words`: allowing
+  mid-word breaks produced "Menyi / apk…", which reads as a typo rather than a
+  truncation.
+
+### D-117 · Rescheduling a missed agenda is the same question as scheduling — **Requested, completes D-106**
+
+D-106 replaced the agenda sheet's bare `<input type="date">` with the real
+picker. §5.8's "Jadwalkan ulang" was the same gap one screen over and was
+missed: the review sheet had its own three chips plus a date-and-time pair,
+which skipped the calendar tab, the prayer avoidance (D-093), the time-block
+confirmation, the event overlap check (D-105) and the parent-before-child
+refusal (D-081) — every rule that makes a placement trustworthy.
+
+It now opens `ScheduleSheet` with the agenda to move, exactly as the agenda
+sheet does. `RescheduleSheet`, `RescheduleBody` and `ManualReschedule` are gone
+with it; there is one scheduling flow in the app again.
+
+One rule moved with it, into `ScheduleSheet`'s move path rather than the review:
+**giving a missed agenda a new time restores it to `planned`.** That is what
+answering §5.8's third action means, and it has to hold wherever the move is
+made from — the review sheet, the agenda sheet, a drag — or the agenda stays in
+the queue it was just answered out of.
+
+### D-118 · The pin was drawn underneath the map — **Bug**
+
+Reported as "pin map tidak terlihat di atas maps".
+
+Leaflet gives its own panes `z-index: 400` (tiles) through 700. The centre pin
+was an absolutely positioned sibling with `z-index: auto`, so it lost to them
+however late it came in the DOM. It was visible in local testing only because
+the sandbox proxy blocks OpenStreetMap and the tiles never painted — the
+failure mode hid the bug behind itself.
+
+`z-[500]` puts it above the tiles and below Leaflet's own controls. The marker
+is also a real teardrop now, with a white ring and a drop shadow, plus a small
+dot at the point it rests on: a flat accent-coloured dot disappears over a road
+or a pale field, which is most of a map.
+
+### D-119 · A place was write-once — **Bug (three reports, one cause)**
+
+Renaming lived in an unlabelled inline input in Settings, deleting lived on a
+trash icon in the picker, and the **coordinates could not be changed at all**
+once saved — the one field the whole estimate is made of. Reported as three
+separate difficulties; it was one: there was no editor.
+
+`PlaceEditorBody` is now the single form for a place, whether being created or
+corrected — map, name, coordinates, "lokasi saya sekarang", and delete. The
+picker swaps its own content to show it (a pencil on each row), and Settings
+opens it as a sheet of its own, so both routes reach the identical form.
+Creating from the picker also *picks* the new place: the user opened it to
+answer "where", and making them tap the new row would ask the same question
+twice.
+
+**The form must not mount before its row arrives.** It holds a draft rather
+than rendering live — the map has to pan freely without a live value yanking it
+back — so a `useState` initialiser reading an unresolved live query seeded the
+name with `""` and the coordinates with the *city default*, and saving then
+quietly moved the pin the user came to correct. It now waits for the query to
+answer (`undefined` = in flight, `null` = gone) and mounts keyed on the row.
+This is D-076's lesson one layer along: a component that both writes a row and
+renders it must read it live — and where it genuinely must hold a draft, it has
+to wait for the row before taking one.
+
+### Verification
+
+Driven in a browser (390×844, Asia/Jakarta):
+
+- **3-day view** — a 2½-hour agenda and a 3¼-hour event now read
+  "Menyiapkan / materi… / 10:00–12:30" and "Belajar / bahasa… / 11:00–14:15",
+  against one character before. Overlapping in one column they still truncate,
+  which is D-036's split and the width of the phone.
+- **Reschedule** — "Jadwalkan ulang" opens "Pindahkan agenda" with the duration
+  presets and the Daftar / Kalender / Custom tabs.
+- **Place editor** — created "Rumah", reopened it from Settings with the name
+  and coordinates *pre-filled*, changed both, and deleted another through the
+  confirmation with its undo toast.

@@ -239,6 +239,11 @@ function ScheduleBody({
         allocated_pomodoro: n,
         outside_window: outsideWindow,
         follows_agenda_id: followsAgendaId,
+        // Giving a missed agenda a new time *is* rescheduling it (§5.8's third
+        // action), wherever that is done from — the review sheet, the agenda
+        // sheet, or a drag. Leaving it `missed` would keep it in the review
+        // queue it was just answered out of.
+        ...(agenda.status === "missed" ? { status: "planned" as const } : {}),
       });
       haptic();
       toast.success(t.calendar.moved);
