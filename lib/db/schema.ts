@@ -59,6 +59,31 @@ export interface Category extends BaseRow, LocalMeta {
 }
 
 /* ------------------------------------------------------------------ */
+/* places                                                              */
+/* ------------------------------------------------------------------ */
+
+/**
+ * A pinned coordinate the user can attach to work: home, the office, a gym.
+ *
+ * Places exist so a commute buffer can be *computed* from the distance between
+ * two of them rather than typed in every time. They are deliberately a table
+ * rather than inline coordinates on each row: the same place is reused across
+ * many todos and events, and moving the pin has to move every estimate with it.
+ */
+export interface Place extends BaseRow, LocalMeta {
+  name: string;
+  latitude: number;
+  longitude: number;
+  sort_order: number;
+}
+
+/** The subset of a place the travel maths actually needs. */
+export interface Coordinate {
+  latitude: number;
+  longitude: number;
+}
+
+/* ------------------------------------------------------------------ */
 /* todos                                                               */
 /* ------------------------------------------------------------------ */
 
@@ -81,6 +106,12 @@ export interface Todo extends BaseRow, LocalMeta {
   completed_at: IsoDateTime | null;
   focus_week: IsoWeek | null;
   sort_order: number;
+  /**
+   * Where this work happens. A *default*: it is copied onto each agenda as the
+   * todo is scheduled, and the agenda's own copy is what the commute maths
+   * reads. Null means "wherever you already are" — no commute is charged.
+   */
+  place_id: UUID | null;
 }
 
 /* ------------------------------------------------------------------ */
@@ -121,6 +152,15 @@ export interface Agenda extends BaseRow, LocalMeta {
    * Null for the overwhelming majority of agendas, which own their start time.
    */
   follows_agenda_id: UUID | null;
+  /** Where this session happens. Copied from the todo at creation. */
+  place_id: UUID | null;
+  /**
+   * While 1, `buffer_before_min` / `buffer_before_type` are owned by the
+   * commute reconciler and rewritten whenever the day's order changes. Typing a
+   * buffer by hand sets it to 0 and the reconciler never touches this row
+   * again, until the user asks for the estimate back.
+   */
+  commute_auto: Flag;
 }
 
 /* ------------------------------------------------------------------ */
@@ -202,7 +242,20 @@ export type EventRecurrence = "once" | "weekly";
  */
 export interface CalendarEvent extends BaseRow, LocalMeta {
   title: string;
+  /** Free text, e.g. "Ruang rapat lantai 3". A label, not a coordinate. */
   location: string | null;
+  /**
+   * The coordinate, when there is one. Separate from `location` because they
+   * answer different questions: `location` tells the user where to go, this
+   * tells the scheduler how long getting there takes.
+   *
+   * An event is a *rule* (wall-clock + recurrence), and two occurrences can be
+   * reached from different places, so its commute buffer is never stored on
+   * this row — it is derived per occurrence onto `EventInstance.bufferBefore`.
+   */
+  place_id: UUID | null;
+  /** As `Agenda.commute_auto`, but governing every occurrence of this rule. */
+  commute_auto: Flag;
   notes: string | null;
   start_time: HHmm;
   /** At or before `start_time` means the event ends on the following day. */
@@ -263,6 +316,14 @@ export interface Settings extends BaseRow, LocalMeta {
   default_buffer_before_min: number;
   default_buffer_after_min: number;
   default_buffer_type: BufferType;
+  /**
+   * Where every day starts. Null until the user drops the pin — and then the
+   * first block of each day simply gets no commute, rather than one measured
+   * from a guess.
+   */
+  home_place_id: UUID | null;
+  /** Average door-to-door speed, km/h. Drives every distance estimate. */
+  commute_speed_kmh: number;
   pomodoro_focus_min: number;
   pomodoro_short_break_min: number;
   pomodoro_long_break_min: number;
@@ -285,6 +346,7 @@ export type OutboxEntity =
   | "todo"
   | "agenda"
   | "category"
+  | "place"
   | "pomodoro_log"
   | "settings"
   | "time_block"
@@ -350,6 +412,7 @@ export interface ConflictLogEntry {
 /** Tables that participate in the two-way pull/push sync. */
 export const SYNCED_TABLES = [
   "categories",
+  "places",
   "todos",
   "agendas",
   "pomodoro_logs",
@@ -372,6 +435,7 @@ export interface SyncState {
 /** Maps a synced table to the outbox entity tag used for its operations. */
 export const TABLE_TO_ENTITY: Record<SyncedTableName, OutboxEntity> = {
   categories: "category",
+  places: "place",
   todos: "todo",
   agendas: "agenda",
   pomodoro_logs: "pomodoro_log",
@@ -386,6 +450,7 @@ export const TABLE_TO_ENTITY: Record<SyncedTableName, OutboxEntity> = {
 /** Row shapes keyed by table, for generic sync code. */
 export interface SyncedRowMap {
   categories: Category;
+  places: Place;
   todos: Todo;
   agendas: Agenda;
   pomodoro_logs: PomodoroLog;

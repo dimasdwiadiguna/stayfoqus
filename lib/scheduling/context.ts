@@ -4,11 +4,17 @@ import type {
   CalendarEvent,
   EventException,
   IsoDate,
+  Place,
   Settings,
   Todo,
   UUID,
 } from "@/lib/db/schema";
 import { resolveWindows } from "@/lib/scheduling/availability";
+import {
+  agendaStops,
+  eventStopKey,
+  type CommuteStop,
+} from "@/lib/scheduling/commute";
 import { buildFreeSpace } from "@/lib/scheduling/freespace";
 import { activeEvents, expandEvents, type EventInstance } from "@/lib/scheduling/events";
 import { resolvePrayerBlocks } from "@/lib/scheduling/prayer";
@@ -167,6 +173,7 @@ export function toSchedulable(
     createdAt: todo.created_at,
     remainingToAllocate,
     blocked,
+    placeId: todo.place_id,
     parentId: todo.parent_id,
     depth,
   };
@@ -192,6 +199,11 @@ export interface BuildWorldInput {
   events: readonly CalendarEvent[];
   eventExceptions: readonly EventException[];
   gcalBusyEntries: readonly { start_at: string; end_at: string; summary: string | null }[];
+  /**
+   * Pinned coordinates, so each event occurrence can be given the journey it
+   * actually needs. Omit and events keep their stored buffers.
+   */
+  places?: readonly Place[];
   from: IsoDate;
   to: IsoDate;
   /** Agendas to ignore — e.g. the one currently being dragged or rescheduled. */
@@ -235,12 +247,27 @@ export function buildWorld(input: BuildWorldInput): SchedulingWorld {
     timezone,
   );
 
+  const buffers = defaultBuffersOf(settings);
+
+  // Every occurrence gets the journey to it worked out here, from the same
+  // chain the agendas' stored buffers came from — see `expandEvents` for why an
+  // event derives this rather than storing it.
   const events = expandEvents(
     input.events,
     input.eventExceptions,
     from,
     to,
     timezone,
+    input.places
+      ? {
+          agendas: input.agendas,
+          places: new Map(input.places.map((p) => [p.id, p] as const)),
+          homePlaceId: settings.home_place_id,
+          speedKmh: settings.commute_speed_kmh,
+          defaultBefore: buffers.before,
+          timezone,
+        }
+      : undefined,
   );
 
   const busy = [
@@ -253,8 +280,22 @@ export function buildWorld(input: BuildWorldInput): SchedulingWorld {
     ...gcalBusy(input.gcalBusyEntries),
   ];
 
+  // The same stops the reconciler folds over, so a slot the suggester offers
+  // reserves exactly the journey the agenda will be given once it exists.
+  const stops: CommuteStop[] = [
+    ...agendaStops(input.agendas, timezone),
+    ...activeEvents(events).map((instance) => ({
+      key: eventStopKey(instance.eventId, instance.date),
+      date: instance.date,
+      start: instance.start,
+      placeId: instance.placeId,
+    })),
+  ];
+
   const free = buildFreeSpace(windows, busy, {
     minimumMinutes: input.minimumFreeMinutes,
+    homePlaceId: settings.home_place_id,
+    stops,
   });
 
   return {
@@ -265,6 +306,6 @@ export function buildWorld(input: BuildWorldInput): SchedulingWorld {
     busy,
     free,
     shape: sessionShapeOf(settings),
-    buffers: defaultBuffersOf(settings),
+    buffers,
   };
 }

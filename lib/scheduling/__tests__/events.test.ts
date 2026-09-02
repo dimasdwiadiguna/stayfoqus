@@ -28,6 +28,8 @@ function ev(overrides: Partial<CalendarEvent> = {}): CalendarEvent {
     dirty: 0,
     title: "Rapat tim",
     location: null,
+    place_id: null,
+    commute_auto: 1,
     notes: null,
     start_time: "13:00",
     end_time: "15:00",

@@ -5,12 +5,15 @@ import { CalendarClock, ListTodo, Trash2 } from "lucide-react";
 import * as React from "react";
 
 import { BufferField } from "@/components/calendar/buffer-field";
+import { CommuteField } from "@/components/calendar/commute-field";
 import { DurationPicker } from "@/components/calendar/duration-picker";
 import { PomodoroDots } from "@/components/calendar/pomodoro-dots";
+import { PlaceField } from "@/components/places/place-field";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/dialog";
 import { Field, Input } from "@/components/ui/field";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
+import { useCommuteAssignments } from "@/hooks/use-commute";
 import { usePomodoroLogs } from "@/hooks/use-tasks";
 import { useSettings } from "@/hooks/use-settings";
 import { linkImmediatelyAfter, updateAgenda } from "@/lib/agendas/repo";
@@ -102,6 +105,7 @@ function AgendaSheetContent({
   // A pinned agenda's start is derived, not authored — offering to move it
   // would be overwritten by the next chain resolve.
   const pinned = agenda.follows_agenda_id !== null;
+  const assignments = useCommuteAssignments(date);
 
   /** Sets the length from the duration presets, deriving the pomodoro count. */
   const setDuration = (minutes: number, pomodoros: number) => {
@@ -226,16 +230,27 @@ function AgendaSheetContent({
           />
         </Field>
 
+        <PlaceField
+          value={agenda.place_id}
+          onChange={(place_id) => void updateAgenda(agenda.id, { place_id })}
+        />
+
         <div className="grid grid-cols-2 gap-3">
-          <BufferField
+          <CommuteField
             label={t.agenda.fieldBufferBefore}
             minutes={agenda.buffer_before_min}
             type={agenda.buffer_before_type}
+            placeId={agenda.place_id}
+            auto={agenda.commute_auto}
+            assignment={assignments.get(agenda.id)}
             onMinutes={(buffer_before_min) =>
               void updateAgenda(agenda.id, { buffer_before_min })
             }
             onType={(buffer_before_type) =>
               void updateAgenda(agenda.id, { buffer_before_type })
+            }
+            onAutoChange={(commute_auto) =>
+              void updateAgenda(agenda.id, { commute_auto })
             }
           />
           <BufferField

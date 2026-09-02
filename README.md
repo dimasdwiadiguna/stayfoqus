@@ -61,6 +61,7 @@ lib/
   gcal/             client half of Google sync; server half is in app/api
   time/             the single timezone boundary
   todos/ agendas/   repositories and derived counters
+  places/           pinned coordinates, behind the commute estimate
 app/api/gcal/*      server-side Google Calendar access
 supabase/migrations schema + RLS, kept in sync with lib/db/schema.ts by hand
 ```

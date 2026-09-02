@@ -143,6 +143,8 @@ function evt(
     eventId: "e1",
     title: "Rapat klien",
     location: null,
+    placeId: null,
+    commute: null,
     bufferBefore: { min: 0, type: "switch" },
     bufferAfter: { min: 0, type: "switch" },
     skipped: false,

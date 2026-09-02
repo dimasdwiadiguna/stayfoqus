@@ -71,6 +71,14 @@ export function defaultSettings(): Omit<
     default_buffer_before_min: 0,
     default_buffer_after_min: 10,
     default_buffer_type: "switch",
+    // Deliberately unseeded. The prayer coordinates above are a *city* default
+    // the user has never confirmed; adopting them as "home" would quietly
+    // measure every commute from a guess. Until the pin is dropped, the first
+    // block of each day simply gets no commute — the rest of the chain is still
+    // correct, because it measures between places the user did choose.
+    home_place_id: null,
+    // A motorbike through a mid-size Indonesian city, door to door.
+    commute_speed_kmh: 22,
     pomodoro_focus_min: 25,
     pomodoro_short_break_min: 5,
     pomodoro_long_break_min: 15,

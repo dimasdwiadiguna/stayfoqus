@@ -5,10 +5,12 @@ import {
   type UUID,
 } from "@/lib/db/schema";
 import { edgePaddingMin } from "@/lib/scheduling/buffers";
+import { commuteBufferFor, type CommutePricing } from "@/lib/scheduling/commute";
 import { occupy } from "@/lib/scheduling/freespace";
 import { sessionDurationMin } from "@/lib/scheduling/session";
 import { satisfiesTimeBlocks } from "@/lib/scheduling/timeblocks";
 import type {
+  BufferSide,
   DefaultBuffers,
   FreeInterval,
   SchedulableTodo,
@@ -40,6 +42,12 @@ export interface AllocationOptions {
    * parent-after-children rule with agendas that exist outside this run.
    */
   existingEndByTodo?: ReadonlyMap<UUID, number>;
+  /**
+   * Pinned coordinates. Omit and no journey is ever charged — the allocator
+   * then behaves exactly as it did before places existed.
+   */
+  places?: ReadonlyMap<UUID, import("@/lib/db/schema").Place>;
+  commuteSpeedKmh?: number;
   /** Generates the id for each draft agenda. */
   newId: () => UUID;
 }
@@ -131,7 +139,13 @@ function placeOne(
   buffers: DefaultBuffers,
   notBefore: number,
   perDay: Map<IsoDate, number>,
-): { start: number; end: number; interval: FreeInterval } | null {
+  commute: CommutePricing | undefined,
+): {
+  start: number;
+  end: number;
+  interval: FreeInterval;
+  bufferBefore: BufferSide;
+} | null {
   const durationMs = sessionDurationMin(pomodoros, shape) * MINUTE;
 
   for (const interval of free) {
@@ -139,7 +153,13 @@ function placeOne(
     if ((perDay.get(interval.date) ?? 0) >= MAX_SESSIONS_PER_TODO_PER_DAY) continue;
     if (interval.end <= notBefore) continue;
 
-    const padStart = edgePaddingMin(interval.before, buffers.before) * MINUTE;
+    // What this todo's own `before` side costs *here*: the journey from
+    // wherever this interval starts, or the plain default when there is none.
+    // It varies by interval, which is exactly the point — the same session is
+    // cheap after a block at the same place and expensive after one across town.
+    const bufferBefore = commuteBufferFor(interval.originPlaceId, commute, buffers.before);
+
+    const padStart = edgePaddingMin(interval.before, bufferBefore) * MINUTE;
     const padEnd = edgePaddingMin(interval.after, buffers.after) * MINUTE;
 
     let cursor = Math.max(interval.start + padStart, notBefore);
@@ -154,7 +174,7 @@ function placeOne(
 
       const candidate = { start: cursor, end };
       if (satisfiesTimeBlocks(todo, candidate, timeBlocks)) {
-        return { ...candidate, interval };
+        return { ...candidate, interval, bufferBefore };
       }
 
       const blocking = timeBlocks
@@ -230,7 +250,20 @@ export function allocate(options: AllocationOptions): AllocationResult {
       // §5.5 Step 3: session size = min(remaining, 4), minimum 1.
       const desired = Math.min(remaining, MAX_POMODORO_PER_SESSION);
 
-      let placed: { start: number; end: number; interval: FreeInterval } | null = null;
+      const commute: CommutePricing | undefined = options.places
+        ? {
+            placeId: todo.placeId,
+            places: options.places,
+            speedKmh: options.commuteSpeedKmh ?? 0,
+          }
+        : undefined;
+
+      let placed: {
+        start: number;
+        end: number;
+        interval: FreeInterval;
+        bufferBefore: BufferSide;
+      } | null = null;
       let placedSize = 0;
 
       // "Try progressively smaller session sizes (4→3→2→1) before giving up."
@@ -244,6 +277,7 @@ export function allocate(options: AllocationOptions): AllocationResult {
           buffers,
           floor,
           perDay,
+          commute,
         );
         if (placed) {
           placedSize = size;
@@ -268,13 +302,17 @@ export function allocate(options: AllocationOptions): AllocationResult {
       recordEnd(todo, placed.end);
 
       // §5.5 Step 3: "On placement … update the free-space map." The new draft
-      // presents its own buffers to whatever is placed next to it.
+      // presents its own buffers to whatever is placed next to it — including
+      // the journey it was just charged, or the space it reserved would not be
+      // the space it takes. Its location also becomes the origin for whatever
+      // follows it that day.
       free = occupy(free, {
         start: placed.start,
         end: placed.end,
         agendaId: id,
-        bufferBefore: buffers.before,
+        bufferBefore: placed.bufferBefore,
         bufferAfter: buffers.after,
+        placeId: todo.placeId,
       });
     }
 

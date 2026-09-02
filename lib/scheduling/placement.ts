@@ -1,5 +1,6 @@
 import type { IsoDate } from "@/lib/db/schema";
 import { edgePaddingMin } from "@/lib/scheduling/buffers";
+import { commuteBufferFor, type CommutePricing } from "@/lib/scheduling/commute";
 import { satisfiesTimeBlocks } from "@/lib/scheduling/timeblocks";
 import { sessionDurationMin } from "@/lib/scheduling/session";
 import type {
@@ -39,6 +40,10 @@ export interface PlacementCandidate {
  * Each edge charges the shortfall between what the neighbouring agenda already
  * reserved and the composed `required_gap` from §5.2 — see `buffers.ts`. A
  * window edge and a prayer/busy edge charge nothing.
+ *
+ * With `commute`, the candidate's own `before` side becomes the journey from
+ * wherever the interval starts to where the work happens, instead of the user's
+ * default. Nothing else changes: the §5.2 composition is untouched.
  */
 export function earliestStartIn(
   interval: FreeInterval,
@@ -46,8 +51,10 @@ export function earliestStartIn(
   buffers: DefaultBuffers,
   notBefore = -Infinity,
   snap = true,
+  commute?: CommutePricing,
 ): number | null {
-  const padStart = edgePaddingMin(interval.before, buffers.before) * MINUTE;
+  const before = commuteBufferFor(interval.originPlaceId, commute, buffers.before);
+  const padStart = edgePaddingMin(interval.before, before) * MINUTE;
   const padEnd = edgePaddingMin(interval.after, buffers.after) * MINUTE;
 
   const lowerBound = Math.max(interval.start + padStart, notBefore);
@@ -70,6 +77,8 @@ export interface SuggestOptions {
   notBefore?: number;
   /** At most one suggestion per free interval, so the three spread out. */
   onePerInterval?: boolean;
+  /** Where the work happens, so the journey to it is reserved as well. */
+  commute?: CommutePricing;
 }
 
 /**
@@ -89,6 +98,7 @@ export function suggestSlots(options: SuggestOptions): PlacementCandidate[] {
     limit = 3,
     notBefore = -Infinity,
     onePerInterval = true,
+    commute,
   } = options;
 
   const out: PlacementCandidate[] = [];
@@ -105,7 +115,14 @@ export function suggestSlots(options: SuggestOptions): PlacementCandidate[] {
       // Within one interval, step forward past any time block the todo does
       // not match rather than abandoning the interval outright.
       for (let attempt = 0; attempt < 8; attempt += 1) {
-        const start = earliestStartIn(interval, duration, buffers, cursor);
+        const start = earliestStartIn(
+          interval,
+          duration,
+          buffers,
+          cursor,
+          true,
+          commute,
+        );
         if (start === null) break;
 
         const candidate = { start, end: start + duration * MINUTE };

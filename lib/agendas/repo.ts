@@ -16,8 +16,12 @@ import type {
   Settings,
   UUID,
 } from "@/lib/db/schema";
+import { SETTINGS_ROW_ID } from "@/lib/db/schema";
 import type { GcalOutboxOp } from "@/lib/gcal/types";
 import { danglingLinks, resolveChains, wouldCycle } from "@/lib/scheduling/chain";
+import { agendaStops, eventStopKey, resolveCommute } from "@/lib/scheduling/commute";
+import { expandEvents } from "@/lib/scheduling/events";
+import { addDays, localDate } from "@/lib/time";
 
 /**
  * Agenda writes, including the Google Calendar side effects from §6.2.
@@ -59,6 +63,8 @@ export interface NewAgendaInput {
   buffer_after_type?: BufferType;
   /** §"immediately after": pin to the end of this agenda's buffer. */
   follows_agenda_id?: UUID | null;
+  /** Omit to inherit the todo's location; pass null to place it nowhere. */
+  place_id?: UUID | null;
   id?: UUID;
 }
 
@@ -67,6 +73,15 @@ export async function createAgenda(
   settings: Settings,
 ): Promise<Agenda> {
   const status = input.status ?? "planned";
+
+  // The todo's location is a *default*, copied here rather than joined at read
+  // time. A commitment owns where it happens: moving the todo's pin later
+  // should not silently re-route sessions that are already on the calendar.
+  const place_id =
+    input.place_id !== undefined
+      ? input.place_id
+      : ((await getDb().todos.get(input.todo_id))?.place_id ?? null);
+
   const agenda = await createRow("agendas", {
     id: input.id,
     todo_id: input.todo_id,
@@ -84,9 +99,17 @@ export async function createAgenda(
     gcal_synced_at: null,
     gcal_conflict: false,
     follows_agenda_id: input.follows_agenda_id ?? null,
+    place_id,
+    // Explicit buffers are the user speaking, so the estimate must not overrule
+    // them. Everything else starts under the reconciler.
+    commute_auto: input.buffer_before_min === undefined ? 1 : 0,
   });
 
   if (isSyncable(status)) await queueGcalUpsert(agenda.id);
+
+  // A new block is a new waypoint: it needs its own journey, and so may
+  // whatever now follows it.
+  await applyCommuteMoves();
   return agenda;
 }
 
@@ -105,6 +128,8 @@ export type AgendaPatch = Partial<
     | "outside_window"
     | "gcal_conflict"
     | "follows_agenda_id"
+    | "place_id"
+    | "commute_auto"
   >
 >;
 
@@ -124,6 +149,33 @@ export async function updateAgenda(
     await getDb().agendas.update(agendaId, { gcal_event_id: null });
   }
 
+  // Typing a buffer by hand is the user overruling the estimate. Recorded as
+  // soon as it happens, so the reconciler below already sees the new state.
+  if (
+    (patch.buffer_before_min !== undefined || patch.buffer_before_type !== undefined) &&
+    patch.commute_auto === undefined &&
+    next.commute_auto !== 0
+  ) {
+    await updateRow("agendas", agendaId, { commute_auto: 0 });
+  }
+
+  // Order matters, and it only goes one way: the commute pass rewrites `before`
+  // buffers, and `chainedStart` is computed *from* those buffers, so the chain
+  // has to settle afterwards or a pinned follower lands on a stale gap.
+  //
+  // One pass each is enough. A chain move shifts a follower in time but never
+  // reorders the day — a follower is by construction still after its
+  // predecessor — so the commute it was just given is still the right one.
+  if (
+    patch.start_at !== undefined ||
+    patch.end_at !== undefined ||
+    patch.place_id !== undefined ||
+    patch.status !== undefined ||
+    patch.commute_auto !== undefined
+  ) {
+    await applyCommuteMoves();
+  }
+
   // Moving, resizing or re-buffering an agenda drags everything pinned behind
   // it. Skipped when the patch cannot have changed where anything ends.
   if (
@@ -133,12 +185,119 @@ export async function updateAgenda(
     patch.buffer_after_type !== undefined ||
     patch.buffer_before_min !== undefined ||
     patch.buffer_before_type !== undefined ||
-    patch.follows_agenda_id !== undefined
+    patch.follows_agenda_id !== undefined ||
+    patch.place_id !== undefined
   ) {
     await applyChainMoves();
   }
 
   return next;
+}
+
+/* ------------------------------------------------------------------ */
+/* commute buffers                                                     */
+/* ------------------------------------------------------------------ */
+
+/** How far ahead the reconciler keeps buffers correct. Matches the GCal cache. */
+const COMMUTE_HORIZON_DAYS = 30;
+
+/**
+ * Recomputes every automatic commute buffer and writes the ones that changed.
+ *
+ * The counterpart of `applyChainMoves`: called after anything that could have
+ * changed the *order* of a day, because the journey to a block depends entirely
+ * on what came before it. Events take part as waypoints — a meeting at the
+ * office genuinely puts you at the office — but their own buffers are derived
+ * per occurrence in `expandEvents`, never written, because an event is a
+ * recurring rule rather than one instant.
+ *
+ * Only the `before` side is ever touched. §5.2 takes the max within a type and
+ * sums across types, so leaving the neighbour's `after` switch buffer alone is
+ * what makes the gap come out as *reset + journey*: writing the journey to both
+ * sides would swallow the reset instead of stacking with it.
+ *
+ * Writes go through `updateRow`, so a recomputed buffer syncs and re-queues its
+ * Google update like any other edit — and nothing is written when the number
+ * has not moved, which is what keeps this from being a write loop.
+ */
+export async function applyCommuteMoves(): Promise<number> {
+  const db = getDb();
+  const settings = await db.settings.get(SETTINGS_ROW_ID);
+  if (!settings) return 0;
+
+  const [agendas, places, events, eventExceptions] = await Promise.all([
+    db.agendas.toArray(),
+    db.places.toArray(),
+    db.events.toArray(),
+    db.event_exceptions.toArray(),
+  ]);
+
+  const live = agendas.filter((a) => !a.deleted_at);
+  const today = localDate(new Date(), settings.timezone);
+  const from = addDays(today, -1);
+  const to = addDays(today, COMMUTE_HORIZON_DAYS);
+
+  // Expanded *without* a commute context: here they are only waypoints, and
+  // asking for their buffers would recurse back into this same resolver.
+  const occurrences = expandEvents(
+    events.filter((e) => !e.deleted_at),
+    eventExceptions.filter((e) => !e.deleted_at),
+    from,
+    to,
+    settings.timezone,
+  ).filter((instance) => !instance.skipped);
+
+  const assignments = resolveCommute(
+    [
+      ...agendaStops(live, settings.timezone),
+      ...occurrences.map((instance) => ({
+        key: eventStopKey(instance.eventId, instance.date),
+        date: instance.date,
+        start: instance.start,
+        placeId: instance.placeId,
+      })),
+    ],
+    {
+      homePlaceId: settings.home_place_id,
+      places: new Map(places.filter((p) => !p.deleted_at).map((p) => [p.id, p])),
+      speedKmh: settings.commute_speed_kmh,
+    },
+  );
+
+  let written = 0;
+
+  for (const agenda of live) {
+    if (agenda.commute_auto === 0) continue;
+
+    const commute = assignments.get(agenda.id);
+    const minutes = commute?.minutes ?? 0;
+
+    // No journey — because there is no location, no home pin, or you are
+    // already there. Fall back to whatever the user chose as their default.
+    const next =
+      minutes > 0
+        ? { min: minutes, type: "commute" as const }
+        : {
+            min: settings.default_buffer_before_min,
+            type: settings.default_buffer_type,
+          };
+
+    if (
+      agenda.buffer_before_min === next.min &&
+      agenda.buffer_before_type === next.type
+    ) {
+      continue;
+    }
+
+    await updateRow("agendas", agenda.id, {
+      buffer_before_min: next.min,
+      buffer_before_type: next.type,
+    });
+    if (isSyncable(agenda.status)) await queueGcalUpsert(agenda.id);
+    written += 1;
+  }
+
+  return written;
 }
 
 /* ------------------------------------------------------------------ */
@@ -208,6 +367,9 @@ export async function deleteAgenda(agendaId: UUID): Promise<Agenda | undefined> 
   if (agenda.gcal_event_id) {
     await queueGcalDelete(agendaId, agenda.gcal_event_id);
   }
+  // Removing a block removes a waypoint: whatever came after it is now reached
+  // from wherever the *previous* block left you.
+  await applyCommuteMoves();
   // Anything pinned to it is now pinned to nothing; `applyChainMoves` unlinks
   // those rather than leaving them following a ghost.
   await applyChainMoves();
@@ -219,6 +381,7 @@ export async function restoreAgenda(agendaId: UUID): Promise<void> {
   await restoreRow("agendas", agendaId);
   const agenda = await getDb().agendas.get(agendaId);
   if (agenda && isSyncable(agenda.status)) await queueGcalUpsert(agendaId);
+  await applyCommuteMoves();
 }
 
 /* ------------------------------------------------------------------ */
@@ -231,6 +394,9 @@ export async function applyDrafts(agendaIds: UUID[]): Promise<void> {
     await updateRow("agendas", agendaId, { status: "planned" });
     await queueGcalUpsert(agendaId);
   }
+  // A draft is not part of the chain (it was never a commitment), so promoting
+  // one inserts a new waypoint into every day it lands on.
+  await applyCommuteMoves();
 }
 
 /** Reverts an applied batch — the "Urungkan" path, within the 10s window. */
@@ -244,6 +410,7 @@ export async function revertToDrafts(agendaIds: UUID[]): Promise<void> {
       await getDb().agendas.update(agendaId, { gcal_event_id: null });
     }
   }
+  await applyCommuteMoves();
 }
 
 /** Discards a draft batch outright — "Batalkan". */
@@ -252,6 +419,9 @@ export async function discardDrafts(agendaIds: UUID[]): Promise<void> {
     // Drafts were never written to Google, so a plain soft delete suffices.
     await softDeleteRow("agendas", agendaId);
   }
+  // A draft *is* a waypoint while it exists, so throwing the batch away
+  // re-prices whatever was being reached through it.
+  await applyCommuteMoves();
 }
 
 /* ------------------------------------------------------------------ */

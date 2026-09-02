@@ -40,6 +40,7 @@ export function makeTodo(overrides: Partial<Todo> = {}): Todo {
     completed_at: null,
     focus_week: null,
     sort_order: 0,
+    place_id: null,
     ...overrides,
   };
 }
@@ -68,6 +69,8 @@ export function makeAgenda(overrides: Partial<Agenda> = {}): Agenda {
     gcal_synced_at: null,
     gcal_conflict: false,
     follows_agenda_id: null,
+    place_id: null,
+    commute_auto: 1,
     ...overrides,
   };
 }

@@ -33,6 +33,7 @@ export interface NewTodoInput {
   parent_id?: UUID | null;
   focus_week?: IsoWeek | null;
   status?: TodoStatus;
+  place_id?: UUID | null;
 }
 
 /**
@@ -69,6 +70,7 @@ export async function createTodo(input: NewTodoInput): Promise<Todo> {
     completed_at: null,
     focus_week: input.focus_week ?? null,
     sort_order: await nextSortOrder(input.parent_id ?? null),
+    place_id: input.place_id ?? null,
   });
 }
 
@@ -290,6 +292,10 @@ export async function completeTodoWithPomodoro(
       gcal_synced_at: null,
       gcal_conflict: false,
       follows_agenda_id: null,
+      place_id: null,
+      // A retroactive record of work that already happened. There is no journey
+      // left to reserve, so the reconciler must leave its zero buffers alone.
+      commute_auto: 0,
     });
     targetAgendaId = created.id;
   } else if (plan.topUpAgendaId) {

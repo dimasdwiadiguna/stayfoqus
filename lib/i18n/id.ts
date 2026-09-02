@@ -111,6 +111,7 @@ export const id = {
     agendasOfTodo: "Agenda tugas ini",
     noAgendas: "Belum ada agenda.",
     tagsPlaceholder: "riset, panggilan, …",
+    placeHint: "Dipakai sebagai default setiap kali tugas ini dijadwalkan.",
     completeParentWarning: (n: number) =>
       `${n} subtask belum selesai. Tetap selesaikan?`,
     completeAnyway: "Tetap selesaikan",
@@ -291,6 +292,45 @@ export const id = {
     parentBeforeChild: (names: string[]) =>
       `Subtask belum selesai dijadwalkan lebih dulu: ${names.join(", ")}. Induk tidak bisa dimulai sebelum subtask-nya.`,
     parentBeforeChildShort: "Tidak bisa mulai sebelum subtask-nya.",
+
+    fieldPlace: "Lokasi",
+    commuteAuto: "Perjalanan dihitung otomatis",
+    commuteFromTo: (from: string, to: string) => `${from} → ${to}`,
+    commuteFromUnknown: (to: string) => `Ke ${to}`,
+    commuteDistance: (km: string) => `± ${km} km`,
+    commuteManual: "Diatur manual",
+    commuteSetManual: "Atur manual",
+    commuteRecompute: "Hitung otomatis",
+    commuteNoHome: "Atur pin rumah di Pengaturan agar perjalanan bisa dihitung.",
+    commuteNone: "Tanpa lokasi — tidak ada buffer perjalanan.",
+  },
+
+  location: {
+    pickTitle: "Pilih lokasi",
+    none: "Tanpa lokasi",
+    pickOnMap: "Pilih di peta",
+    useMyLocation: "Lokasi saya sekarang",
+    locating: "Mencari lokasi…",
+    locateFailed: "Tidak bisa mengambil lokasi. Pilih di peta atau isi koordinat.",
+    mapTitle: "Geser peta, pin di tengah menandai lokasinya",
+    mapOffline: "Peta perlu internet. Koordinat di bawah tetap bisa diisi manual.",
+    nameLabel: "Nama tempat",
+    namePlaceholder: "Kantor",
+    latitude: "Lintang",
+    longitude: "Bujur",
+    save: "Simpan tempat",
+    rename: "Ganti nama",
+    delete: "Hapus tempat",
+    deleteConfirmTitle: "Hapus tempat ini?",
+    deleteConfirmBody:
+      "Agenda dan event yang memakainya tetap ada, tapi buffer perjalanannya kembali ke default.",
+    coordinates: (lat: number, lng: number) =>
+      `${lat.toFixed(4)}, ${lng.toFixed(4)}`,
+    speedWalk: "Jalan kaki",
+    speedMotorbike: "Motor",
+    speedCar: "Mobil",
+    speedCustom: "Custom",
+    speedValue: (kmh: number) => `${kmh} km/j`,
   },
 
   planning: {
@@ -440,6 +480,19 @@ export const id = {
     bufferBefore: "Sebelum agenda",
     bufferAfter: "Sesudah agenda",
     bufferType: "Jenis buffer default",
+
+    locationTitle: "Lokasi & perjalanan",
+    locationBlurb:
+      "Beri lokasi pada tugas atau event, dan buffer perjalanannya dihitung sendiri dari jarak — dianggap kamu berangkat dari rumah setiap awal hari. Tanpa lokasi, tidak ada buffer perjalanan.",
+    homePlace: "Rumah",
+    homePlaceUnset: "Belum diatur",
+    homePlaceHint: "Titik awal setiap hari.",
+    setHomePlace: "Atur pin rumah",
+    commuteSpeed: "Kecepatan rata-rata",
+    commuteSpeedHint: "Dari pintu ke pintu, sudah termasuk macet dan parkir.",
+    savedPlaces: "Tempat tersimpan",
+    noSavedPlaces: "Belum ada tempat tersimpan.",
+    placeDeleted: "Tempat dihapus.",
 
     prayerBlurb:
       "Dihitung offline dari koordinatmu. Blok dipusatkan pada waktu adzan — separuh pertamanya jadi waktu bersiap, jadi durasi 20 menit berarti 10 menit sebelum adzan dan 10 menit sesudahnya. Blok sholat tidak pernah dikirim ke Google Calendar.",
