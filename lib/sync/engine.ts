@@ -79,14 +79,26 @@ async function pushEntry(
   if (error) throw new Error(error.message);
 }
 
+/**
+ * Every entity except `gcal`, which is an operation rather than a row and is
+ * handled before this map is consulted.
+ *
+ * `event` and `event_exception` were missing here since M-events: `pushEntry`
+ * threw "Unknown outbox entity", the entry failed five times and was parked as
+ * `blocked`, so no event mutation ever reached Postgres. Only visible with
+ * Supabase configured, which is why it went unnoticed.
+ */
 const ENTITY_TO_TABLE: Partial<Record<OutboxEntry["entity"], SyncedTableName>> = {
   category: "categories",
+  place: "places",
   todo: "todos",
   agenda: "agendas",
   pomodoro_log: "pomodoro_logs",
   availability_window: "availability_windows",
   time_block: "time_blocks",
   time_block_exception: "time_block_exceptions",
+  event: "events",
+  event_exception: "event_exceptions",
   settings: "settings",
 };
 

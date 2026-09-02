@@ -4,6 +4,7 @@ import type {
   CalendarEvent,
   EventException,
   IsoDate,
+  Place,
   Settings,
   Todo,
   UUID,
@@ -192,6 +193,11 @@ export interface BuildWorldInput {
   events: readonly CalendarEvent[];
   eventExceptions: readonly EventException[];
   gcalBusyEntries: readonly { start_at: string; end_at: string; summary: string | null }[];
+  /**
+   * Pinned coordinates, so each event occurrence can be given the journey it
+   * actually needs. Omit and events keep their stored buffers.
+   */
+  places?: readonly Place[];
   from: IsoDate;
   to: IsoDate;
   /** Agendas to ignore — e.g. the one currently being dragged or rescheduled. */
@@ -235,12 +241,27 @@ export function buildWorld(input: BuildWorldInput): SchedulingWorld {
     timezone,
   );
 
+  const buffers = defaultBuffersOf(settings);
+
+  // Every occurrence gets the journey to it worked out here, from the same
+  // chain the agendas' stored buffers came from — see `expandEvents` for why an
+  // event derives this rather than storing it.
   const events = expandEvents(
     input.events,
     input.eventExceptions,
     from,
     to,
     timezone,
+    input.places
+      ? {
+          agendas: input.agendas,
+          places: new Map(input.places.map((p) => [p.id, p] as const)),
+          homePlaceId: settings.home_place_id,
+          speedKmh: settings.commute_speed_kmh,
+          defaultBefore: buffers.before,
+          timezone,
+        }
+      : undefined,
   );
 
   const busy = [
@@ -265,6 +286,6 @@ export function buildWorld(input: BuildWorldInput): SchedulingWorld {
     busy,
     free,
     shape: sessionShapeOf(settings),
-    buffers: defaultBuffersOf(settings),
+    buffers,
   };
 }

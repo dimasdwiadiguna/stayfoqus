@@ -9,6 +9,7 @@ import type {
   EventException,
   GcalBusy,
   OutboxEntry,
+  Place,
   PomodoroLog,
   Settings,
   SyncState,
@@ -29,6 +30,7 @@ import type {
  */
 export class FoqusDatabase extends Dexie {
   categories!: EntityTable<Category, "id">;
+  places!: EntityTable<Place, "id">;
   todos!: EntityTable<Todo, "id">;
   agendas!: EntityTable<Agenda, "id">;
   pomodoro_logs!: EntityTable<PomodoroLog, "id">;
@@ -91,6 +93,40 @@ export class FoqusDatabase extends Dexie {
       event_exceptions:
         "id, event_id, date, updated_at, dirty, [event_id+date]",
     });
+
+    // v4 adds `places` — pinned coordinates — and the three columns that let a
+    // commute buffer be computed from the distance between two of them.
+    //
+    // `place_id` is not indexed anywhere: the commute pass loads a day's rows
+    // and joins in memory, so an index would cost writes and buy nothing.
+    // Existing rows are backfilled, `commute_auto = 1` so anything already on
+    // the calendar picks the estimate up as soon as a location is given to it.
+    this.version(4)
+      .stores({
+        places: "id, sort_order, updated_at, dirty",
+      })
+      .upgrade(async (tx) => {
+        await tx
+          .table("agendas")
+          .toCollection()
+          .modify((agenda: { place_id?: string | null; commute_auto?: 0 | 1 }) => {
+            agenda.place_id = null;
+            agenda.commute_auto = 1;
+          });
+        await tx
+          .table("todos")
+          .toCollection()
+          .modify((todo: { place_id?: string | null }) => {
+            todo.place_id = null;
+          });
+        await tx
+          .table("events")
+          .toCollection()
+          .modify((event: { place_id?: string | null; commute_auto?: 0 | 1 }) => {
+            event.place_id = null;
+            event.commute_auto = 1;
+          });
+      });
   }
 }
 

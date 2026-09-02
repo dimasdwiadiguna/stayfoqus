@@ -3,6 +3,7 @@
 import { useLiveQuery } from "dexie-react-hooks";
 import * as React from "react";
 
+import { usePlaces } from "@/hooks/use-places";
 import { useSettings } from "@/hooks/use-settings";
 import { useAgendas, useTaskData } from "@/hooks/use-tasks";
 import { getDb } from "@/lib/db/client";
@@ -87,6 +88,7 @@ export interface UseWorldOptions {
 export function useSchedulingWorld(options: UseWorldOptions): SchedulingWorld {
   const settings = useSettings();
   const agendas = useAgendas();
+  const places = usePlaces();
   const windows = useAvailabilityWindows();
   const timeBlocks = useTimeBlocks();
   const exceptions = useTimeBlockExceptions();
@@ -107,6 +109,7 @@ export function useSchedulingWorld(options: UseWorldOptions): SchedulingWorld {
         events,
         eventExceptions,
         gcalBusyEntries,
+        places,
         from,
         to,
         excludeAgendaIds,
@@ -121,6 +124,7 @@ export function useSchedulingWorld(options: UseWorldOptions): SchedulingWorld {
       events,
       eventExceptions,
       gcalBusyEntries,
+      places,
       from,
       to,
       excludeAgendaIds,

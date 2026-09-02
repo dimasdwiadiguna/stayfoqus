@@ -1,5 +1,19 @@
-import type { CalendarEvent, EventException, IsoDate, UUID } from "@/lib/db/schema";
+import type {
+  Agenda,
+  CalendarEvent,
+  EventException,
+  IsoDate,
+  UUID,
+} from "@/lib/db/schema";
 import { dateRange, dayOfWeek, instantAt, minutesFromMidnight } from "@/lib/time";
+import {
+  agendaStops,
+  eventStopKey,
+  resolveCommute,
+  type CommuteAssignment,
+  type CommuteContext,
+  type CommuteStop,
+} from "@/lib/scheduling/commute";
 import { byStart, overlaps } from "@/lib/scheduling/intervals";
 import type { BufferSide, Interval } from "@/lib/scheduling/types";
 
@@ -27,8 +41,17 @@ export interface EventInstance extends Interval {
   eventId: UUID;
   title: string;
   location: string | null;
+  /** The coordinate this occurrence happens at, when there is one. */
+  placeId: UUID | null;
   bufferBefore: BufferSide;
   bufferAfter: BufferSide;
+  /**
+   * How the journey to this occurrence was worked out, when it was.
+   *
+   * Present only when `bufferBefore` is a computed commute — the sheet uses it
+   * to say "Rumah → Kantor" rather than just a number.
+   */
+  commute: CommuteAssignment | null;
   /**
    * This occurrence was skipped (§4.7's idea, applied to events).
    *
@@ -50,6 +73,20 @@ function sideAfter(event: CalendarEvent): BufferSide {
 }
 
 /**
+ * What `expandEvents` needs in order to compute each occurrence's commute.
+ *
+ * Optional: without it the expansion behaves exactly as it did before, and the
+ * stored buffers are used as written.
+ */
+export interface EventCommuteContext extends CommuteContext {
+  /** The other blocks on these days — waypoints in the same chain. */
+  agendas: readonly Agenda[];
+  /** What a `before` buffer falls back to when no journey is charged. */
+  defaultBefore: BufferSide;
+  timezone: string;
+}
+
+/**
  * Expands recurrence into concrete occurrences over a date range, honouring
  * per-date skips.
  *
@@ -57,6 +94,17 @@ function sideAfter(event: CalendarEvent): BufferSide {
  * day. `expandTimeBlocks` skips such a row instead, and rightly: a time block
  * is a rule about a window, and a window that wraps midnight is a mistake. An
  * event is a thing that happens, and 21:00–00:30 happens.
+ *
+ * ## Why the commute is computed here rather than stored
+ *
+ * An agenda is a concrete instant, so its commute is a fact about that
+ * placement and is written onto the row (`applyCommuteMoves`). An event is a
+ * *rule* — wall-clock time plus a recurrence — and two of its occurrences can
+ * be reached from completely different places: Tuesday you are already at the
+ * office, Friday you leave from home. One number on the shared row would be
+ * wrong on most days, so it is derived per occurrence instead, right here where
+ * the occurrence itself is made. Both paths call the same `resolveCommute`, so
+ * an agenda and an event on the same day cannot disagree about the chain.
  */
 export function expandEvents(
   events: readonly CalendarEvent[],
@@ -64,6 +112,7 @@ export function expandEvents(
   from: IsoDate,
   to: IsoDate,
   timezone: string,
+  commuteCtx?: EventCommuteContext,
 ): EventInstance[] {
   const skipped = new Set(
     exceptions
@@ -101,8 +150,10 @@ export function expandEvents(
         eventId: event.id,
         title: event.title,
         location: event.location,
+        placeId: event.place_id,
         bufferBefore: sideBefore(event),
         bufferAfter: sideAfter(event),
+        commute: null,
         skipped: skipped.has(`${event.id}|${date}`),
         start,
         end,
@@ -110,7 +161,56 @@ export function expandEvents(
     }
   }
 
-  return out.sort(byStart);
+  const expanded = out.sort(byStart);
+  return commuteCtx ? withCommute(expanded, events, commuteCtx) : expanded;
+}
+
+/**
+ * Rewrites each occurrence's `before` buffer with the journey to it.
+ *
+ * Only occurrences whose event is still `commute_auto` are touched — typing a
+ * buffer by hand takes the row out of the estimate's hands for good, until the
+ * user asks for it back.
+ *
+ * A skipped occurrence still takes part in the chain's *ordering* but must not
+ * move you: you did not go. It is excluded from the stops for that reason, so
+ * the occurrence after it is measured from wherever you actually were.
+ */
+function withCommute(
+  instances: readonly EventInstance[],
+  events: readonly CalendarEvent[],
+  ctx: EventCommuteContext,
+): EventInstance[] {
+  const autoByEvent = new Map(events.map((e) => [e.id, e.commute_auto !== 0] as const));
+
+  const stops: CommuteStop[] = [
+    ...agendaStops(ctx.agendas, ctx.timezone),
+    ...instances
+      .filter((instance) => !instance.skipped)
+      .map((instance) => ({
+        key: eventStopKey(instance.eventId, instance.date),
+        date: instance.date,
+        start: instance.start,
+        placeId: instance.placeId,
+      })),
+  ];
+
+  const assignments = resolveCommute(stops, ctx);
+
+  return instances.map((instance) => {
+    if (!autoByEvent.get(instance.eventId)) return instance;
+
+    const commute = assignments.get(eventStopKey(instance.eventId, instance.date));
+    if (!commute || commute.minutes <= 0) {
+      return { ...instance, bufferBefore: ctx.defaultBefore, commute: null };
+    }
+
+    return {
+      ...instance,
+      bufferBefore: { min: commute.minutes, type: "commute" as const },
+      commute,
+    };
+  });
 }
 
 /** The occurrences that actually consume time. */

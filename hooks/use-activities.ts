@@ -3,6 +3,7 @@
 import * as React from "react";
 
 import { useTick } from "@/hooks/use-now";
+import { usePlaces } from "@/hooks/use-places";
 import { useSettings } from "@/hooks/use-settings";
 import { useEventExceptions, useEvents } from "@/hooks/use-scheduling";
 import { useAgendas } from "@/hooks/use-tasks";
@@ -34,6 +35,7 @@ export function useNowNext(): NowNext & { now: number | null } {
   const agendas = useAgendas();
   const rawEvents = useEvents();
   const eventExceptions = useEventExceptions();
+  const places = usePlaces();
   /**
    * One second, not thirty (D-107).
    *
@@ -69,6 +71,10 @@ export function useNowNext(): NowNext & { now: number | null } {
     settings.friday_dhuhr_duration_min,
   ]);
 
+  // The same commute context `buildWorld` passes, because an event's `before`
+  // buffer is derived per occurrence and the ticker announces commutes as
+  // activities of their own (D-103). Without it the strip would omit exactly
+  // the journeys it exists to warn about.
   const events = React.useMemo(() => {
     if (!today) return [];
     return expandEvents(
@@ -77,8 +83,30 @@ export function useNowNext(): NowNext & { now: number | null } {
       today,
       addDays(today, 1),
       settings.timezone,
+      {
+        agendas,
+        places: new Map(places.map((p) => [p.id, p] as const)),
+        homePlaceId: settings.home_place_id,
+        speedKmh: settings.commute_speed_kmh,
+        defaultBefore: {
+          min: settings.default_buffer_before_min,
+          type: settings.default_buffer_type,
+        },
+        timezone: settings.timezone,
+      },
     );
-  }, [today, rawEvents, eventExceptions, settings.timezone]);
+  }, [
+    today,
+    rawEvents,
+    eventExceptions,
+    agendas,
+    places,
+    settings.timezone,
+    settings.home_place_id,
+    settings.commute_speed_kmh,
+    settings.default_buffer_before_min,
+    settings.default_buffer_type,
+  ]);
 
   const activities = React.useMemo(
     () => buildActivities({ agendas, events, prayers }),
