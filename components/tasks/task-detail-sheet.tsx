@@ -3,6 +3,7 @@
 import { Plus, X } from "lucide-react";
 import * as React from "react";
 
+import { PlaceField } from "@/components/places/place-field";
 import { Button } from "@/components/ui/button";
 import {
   Checkbox,
@@ -174,6 +175,14 @@ function DetailBody({
           placeholder={t.tasks.tagsPlaceholder}
         />
       </Field>
+
+      {/* A default, copied onto each agenda as this todo is scheduled — set it
+          once for "Gym" and every gym session gets its journey reserved. */}
+      <PlaceField
+        value={todo.place_id}
+        onChange={(place_id) => patch({ place_id })}
+        hint={t.tasks.placeHint}
+      />
 
       <Field label={t.tasks.fieldEstimate}>
         <div className="flex items-center gap-2">

@@ -7,6 +7,7 @@ import { useSyncExternalStore } from "react";
 import { AccountSection } from "@/components/settings/account-section";
 import { AvailabilityEditor } from "@/components/settings/availability-editor";
 import { CategoryEditor } from "@/components/settings/category-editor";
+import { LocationSection } from "@/components/settings/location-section";
 import { Row, Section, Stepper } from "@/components/settings/section";
 import { TimeBlockEditor } from "@/components/settings/time-block-editor";
 import { Screen, ScreenTitle } from "@/components/shell/screen";
@@ -57,6 +58,7 @@ export function SettingsScreen() {
       <div className="pb-24">
         <AccountSection />
         <AvailabilityEditor />
+        <LocationSection />
         <BufferSection />
         <PrayerSection />
         <PomodoroSection />

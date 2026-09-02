@@ -5,11 +5,14 @@ import { EyeOff, Trash2, Undo2 } from "lucide-react";
 import * as React from "react";
 
 import { BufferField } from "@/components/calendar/buffer-field";
+import { CommuteField } from "@/components/calendar/commute-field";
+import { PlaceField } from "@/components/places/place-field";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/dialog";
 import { Chip, Field, Input, Segmented } from "@/components/ui/field";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { toast } from "@/components/ui/toast";
+import { useCommuteAssignments } from "@/hooks/use-commute";
 import { getDb } from "@/lib/db/client";
 import type { DayOfWeek, EventRecurrence, IsoDate, UUID } from "@/lib/db/schema";
 import {
@@ -20,6 +23,7 @@ import {
   type EventPatch,
 } from "@/lib/events/repo";
 import { id as t } from "@/lib/i18n/id";
+import { eventStopKey } from "@/lib/scheduling/commute";
 import { dayOfWeek, minutesFromMidnight } from "@/lib/time";
 
 const DAY_ORDER: DayOfWeek[] = [1, 2, 3, 4, 5, 6, 0];
@@ -71,8 +75,11 @@ function EventSheetBody({
   );
 
   const [confirmDelete, setConfirmDelete] = React.useState(false);
+  const assignments = useCommuteAssignments(open.date);
 
   if (!event || event.deleted_at) return null;
+
+  const occurrenceCommute = assignments.get(eventStopKey(event.id, open.date));
 
   const patch = (next: EventPatch) => void updateEvent(event.id, next);
   const weekly = event.recurrence === "weekly";
@@ -112,6 +119,14 @@ function EventSheetBody({
             onBlur={(e) => patch({ location: e.target.value.trim() || null })}
           />
         </Field>
+
+        {/* The coordinate, as distinct from the free-text label above: one
+            tells the user where to go, the other tells the scheduler how long
+            getting there takes. */}
+        <PlaceField
+          value={event.place_id}
+          onChange={(place_id) => patch({ place_id })}
+        />
 
         <div className="grid grid-cols-2 gap-3">
           <Field label={t.event.fieldStart}>
@@ -196,12 +211,21 @@ function EventSheetBody({
         )}
 
         <div className="grid grid-cols-2 gap-3">
-          <BufferField
+          {/* The occurrence's number, not the row's: an event is a recurring
+              rule and each of its days can be reached from somewhere else, so
+              the estimate is derived per date (see `expandEvents`). */}
+          <CommuteField
             label={t.agenda.fieldBufferBefore}
-            minutes={event.buffer_before_min}
-            type={event.buffer_before_type}
+            minutes={occurrenceCommute?.minutes ?? event.buffer_before_min}
+            type={
+              occurrenceCommute ? "commute" : event.buffer_before_type
+            }
+            placeId={event.place_id}
+            auto={event.commute_auto}
+            assignment={occurrenceCommute}
             onMinutes={(buffer_before_min) => patch({ buffer_before_min })}
             onType={(buffer_before_type) => patch({ buffer_before_type })}
+            onAutoChange={(commute_auto) => patch({ commute_auto })}
           />
           <BufferField
             label={t.agenda.fieldBufferAfter}
