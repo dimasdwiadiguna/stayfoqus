@@ -7,7 +7,7 @@ import { heightFor, minutesToPx, topFor } from "@/lib/calendar/geometry";
 import type { IsoDate } from "@/lib/db/schema";
 import { id as t } from "@/lib/i18n/id";
 import type { EventInstance } from "@/lib/scheduling";
-import { formatTimeRange } from "@/lib/time";
+import { formatTimeRange, localTime } from "@/lib/time";
 import { cn } from "@/lib/utils";
 
 /**
@@ -52,7 +52,16 @@ export function EventBlock({
     new Date(event.end).toISOString(),
     timezone,
   );
-  const short = height < 40 || compact;
+  /**
+   * Height alone, not `compact` — see the same note on `AgendaBlock`. A tall
+   * event in a narrow 3-day column has room to stack; forcing its range onto
+   * the title's row left roughly one character of the title visible.
+   */
+  const short = height < 40;
+  /** Only the start time where a narrow one-line block cannot fit the range. */
+  const stamp = short && compact
+    ? localTime(new Date(event.start).toISOString(), timezone)
+    : timeRange;
   const Icon = event.location ? MapPin : CalendarDays;
 
   return (
@@ -104,7 +113,10 @@ export function EventBlock({
           <Icon className="size-3 shrink-0 text-event" aria-hidden />
           <span
             className={cn(
-              "min-w-0 flex-1 truncate text-[12px] font-medium leading-tight",
+              "min-w-0 flex-1 text-[12px] font-medium leading-tight",
+              // One line beside the time on a short block; two when it stacks,
+              // because a narrow 3-day column otherwise shows "B…" and no more.
+              short ? "truncate" : "line-clamp-2",
               event.skipped && "line-through",
             )}
           >
@@ -118,7 +130,7 @@ export function EventBlock({
           ) : null}
           {short ? (
             <span className="shrink-0 text-[10px] tabular-nums text-fg-muted">
-              {timeRange}
+              {stamp}
             </span>
           ) : null}
         </div>

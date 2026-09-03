@@ -122,15 +122,39 @@ export function PlaceMap({
       <div className="relative overflow-hidden rounded-xl border border-border">
         <div ref={hostRef} className="h-56 w-full bg-surface-muted" />
 
-        {/* The pin: fixed at the centre, never in the way of the gesture. */}
+        {/*
+          The pin: fixed at the centre, never in the way of the gesture.
+
+          `z-[500]` is not decoration. Leaflet gives its own panes z-index 400
+          (tiles) through 700, so an overlay with `z-index: auto` loses to them
+          however late it comes in the DOM — the pin was drawn *underneath the
+          map* and only visible when the tiles failed to load.
+
+          Drawn as a teardrop with a white ring and a drop shadow so it stays
+          legible over a satellite-dark street, a pale field, or a road, none of
+          which a flat dot survives.
+        */}
         <div
           aria-hidden
-          className="pointer-events-none absolute inset-0 flex items-center justify-center"
+          className="pointer-events-none absolute inset-0 z-[500] flex items-center justify-center"
         >
-          <div className="-mt-3 flex flex-col items-center">
-            <div className="size-3 rounded-full border-2 border-white bg-accent shadow" />
-            <div className="h-3 w-px bg-accent" />
-            <div className="size-1 rounded-full bg-accent/60" />
+          <div className="flex flex-col items-center" style={{ marginTop: -22 }}>
+            <svg
+              width="28"
+              height="40"
+              viewBox="0 0 28 40"
+              className="drop-shadow-[0_2px_3px_rgba(0,0,0,0.45)]"
+            >
+              <path
+                d="M14 1.5c-6.6 0-12 5.3-12 11.9 0 8.6 10.6 20.9 11.1 21.4a1.2 1.2 0 0 0 1.8 0C15.4 34.3 26 22 26 13.4 26 6.8 20.6 1.5 14 1.5Z"
+                fill="var(--accent)"
+                stroke="#fff"
+                strokeWidth="2.5"
+              />
+              <circle cx="14" cy="13.2" r="4.2" fill="#fff" />
+            </svg>
+            {/* The exact point the tip rests on, so precision is visible. */}
+            <div className="size-1.5 -mt-1 rounded-full bg-black/50 ring-1 ring-white/70" />
           </div>
         </div>
       </div>
