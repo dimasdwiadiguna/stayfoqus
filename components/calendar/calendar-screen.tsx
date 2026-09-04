@@ -1,11 +1,14 @@
 "use client";
 
 import {
+  CalendarDays,
   ChevronLeft,
   ChevronRight,
   ClipboardList,
+  Hourglass,
   Maximize2,
   Minimize2,
+  Timer,
 } from "lucide-react";
 import * as React from "react";
 
@@ -533,7 +536,7 @@ export function CalendarScreen() {
       header={
         // Kept to three thin rows: on a 390px screen every row of chrome is a
         // row of timeline the user does not get to see.
-        <div className="space-y-2">
+        <div className="space-y-1.5">
           <ScreenTitle
             title={t.calendar.title}
             actions={
@@ -561,8 +564,16 @@ export function CalendarScreen() {
             >
               <ChevronLeft className="size-4" />
             </Button>
-            <span className="min-w-0 flex-1 truncate text-center text-[13px] font-medium text-fg-muted">
-              {formatDateFull(anchor)}
+            {/*
+              The short form, because the totals now share this row: a long
+              date that truncates loses the year silently, where the short one
+              fits whole. The full date stays in `title`.
+            */}
+            <span
+              className="min-w-0 truncate text-[13px] font-medium text-fg-muted"
+              title={formatDateFull(anchor)}
+            >
+              {formatDateWithWeekday(anchor)}
             </span>
             <Button
               size="iconSm"
@@ -572,8 +583,43 @@ export function CalendarScreen() {
             >
               <ChevronRight className="size-4" />
             </Button>
+            {/*
+              The day's three figures, as icon and number.
+              They used to be a thin row of their own; the words around them
+              never changed, so they were a row of timeline spent on
+              punctuation. The sentence each one stands for is still in
+              `title`, which is also what a screen reader reads.
+            */}
+            {view !== "list" ? (
+              <span className="ml-auto flex shrink-0 items-center gap-1.5 pr-1 text-[11px] tabular-nums text-fg-subtle">
+                <span
+                  className="inline-flex items-center gap-0.5"
+                  title={t.calendar.agendaCount(headerTotals.count)}
+                >
+                  <CalendarDays className="size-3" aria-hidden />
+                  {headerTotals.count}
+                </span>
+                <span
+                  className="inline-flex items-center gap-0.5"
+                  title={t.calendar.allocatedPomodoro(headerTotals.allocated)}
+                >
+                  <Timer className="size-3" aria-hidden />
+                  {headerTotals.allocated}
+                </span>
+                <span
+                  className="inline-flex items-center gap-0.5"
+                  title={t.calendar.freeHours(
+                    formatHoursDecimal(headerTotals.freeMin),
+                  )}
+                >
+                  <Hourglass className="size-3" aria-hidden />
+                  {formatHoursDecimal(headerTotals.freeMin)}
+                </span>
+              </span>
+            ) : null}
             <Button
               size="sm"
+              className="tap-44"
               variant={anchor === today ? "secondary" : "outline"}
               onClick={() => setAnchor(today)}
             >
@@ -626,19 +672,6 @@ export function CalendarScreen() {
               </>
             ) : null}
           </div>
-
-          {/*
-            The day's totals on one thin line of their own. Squeezed onto the
-            row above they truncated on a 390px screen, and the figure lost was
-            the free hours — the one of the three that drives a decision.
-          */}
-          {view !== "list" ? (
-            <p className="text-[11px] tabular-nums text-fg-subtle">
-              {t.calendar.agendaCount(headerTotals.count)} ·{" "}
-              {t.calendar.allocatedPomodoro(headerTotals.allocated)} ·{" "}
-              {t.calendar.freeHours(formatHoursDecimal(headerTotals.freeMin))}
-            </p>
-          ) : null}
         </div>
       }
       // The timeline pane owns its scrolling; only the list view uses the
