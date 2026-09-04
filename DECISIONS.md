@@ -2000,3 +2000,202 @@ Driven in a browser (390×844, Asia/Jakarta):
 - **Place editor** — created "Rumah", reopened it from Settings with the name
   and coordinates *pre-filled*, changed both, and deleted another through the
   confirmation with its undo toast.
+
+---
+
+## UI yang padat, dan hari sebagai unit perencanaan
+
+Two requests, taken together. The app was dense in *features* and loose on
+*screen*: on a 390×844 viewport the chrome came to roughly 39 % of the display,
+and under it the rows still carried shadcn's default breathing room. The ask was
+to tighten rows and spacing **without** shrinking the header or the ticker or
+what they say, to fold away fields that had gone orphan or redundant, to let an
+icon carry anything a word was carrying alone — and to shelve weekly planning
+for now, because the planning that matters today is daily.
+
+### D-120 · `tap-44`: compaction still pays for its touch targets — **Interpreted**
+
+D-098 settled the principle ("compaction is layout, not touch targets") and
+`Chip size="sm"` was its one implementation: an invisible band restoring the
+44 px M10 asks for. This pass needed the same trick in eight more places, so the
+band is now a Tailwind utility, `tap-44`.
+
+It is a **fixed 2.75rem band centred on the control**, not a symmetric negative
+inset. That matters: one utility then serves every height the app compacts to —
+a 36 px icon button gains 4 px a side, a 28 px chip gains 8 — and no call site
+has to work out its own arithmetic. `Chip size="sm"` was refactored onto it, so
+there is one definition rather than two that can drift.
+
+Applied by default to `Button size="iconSm"` and to `Segmented`'s items, because
+both live in single toolbar rows by construction. Deliberately **not** applied to
+`Button size="sm"`: that one turns up inside stacked list rows, where the band
+would reach into the row below — exactly the overlap D-098 warns about. The two
+`sm` call sites that *are* on a toolbar row (the calendar's "Hari ini", the audio
+preview in Settings) opt in by hand.
+
+Measured before and after, counting every `button`, `a`, `[role=button]` and
+`input` on each screen whose effective hit box — pseudo-element included — is
+under 44 px:
+
+| screen | before | after |
+|---|---|---|
+| Tugas | 14 | **1** |
+| Kalender | 10 | **1** |
+| Hari Ini (was Pekan Ini) | 12 | **1** |
+| Pengaturan | 87 | **1** |
+
+The one that remains on each is the `NowTicker` strip, which is a full-width
+link rather than a control, and which this pass was asked to leave alone.
+
+### D-121 · The header loses its words, never its information — **Requested**
+
+The instruction was explicit: do not cut the header's size or its content, but
+where an icon can carry something, let it.
+
+The calendar's fourth row was "3 agenda · 8 pomodoro · 4,5 jam bebas" — three
+figures wrapped in words that never change. The words were the row. The figures
+moved up beside the day navigation as icon-and-number (`CalendarDays`, `Timer`,
+`Hourglass`), and each keeps its full sentence in `title`, which is also what a
+screen reader announces. Nothing is lost; a row of timeline is gained.
+
+Two consequences worth recording:
+
+- **The date shortened with it.** Sharing that row, `formatDateFull` ("Jumat, 4
+  September 2026") truncated to "Jumat, 4 Sept…" — losing the year *silently*.
+  `formatDateWithWeekday` ("Jum 4 Sep") fits whole, and the full date moved to
+  `title`. A short form that fits beats a long one that gets cut.
+- **The same reasoning ran over the Tasks header**, where the "Tampilkan
+  selesai" chip became an eye toggle. That one buys width, not height: it is
+  what stops the grouping control from truncating.
+
+Header heights, measured: Kalender 176 → 143 px, Tugas 153 → 141 px, both with
+the same information on screen.
+
+### D-122 · A task row stacks only when it has to — **Interpreted**
+
+The row was always two lines: title, then a meta line for due date, subtask
+count and tags. A todo with none of those still paid for the second line, and a
+todo with one paid for a whole line to hold one badge.
+
+The row now counts its metadata (`taskMetaCount`) and puts a single kind inline
+beside the title, keeping the second line for two or more. The cutoff is
+deliberate and is D-116's rule read forwards: *a narrow column is a reason to
+stack, never to crowd one line* — one figure fits after a truncating title, two
+start eating it.
+
+What makes the inline case fit at all is that the figures became icon plus
+number — `CalendarDays 4 Sep`, `ListTree 2/5` — with the sentence in `title`,
+the same move as D-121 one level down.
+
+Row height 53 → 45 px (`min-h-11`, i.e. exactly M10's floor, not under it), and
+the checkbox inside it gained `tap-44` so shortening the row could not shorten
+its hit area. On a 390×844 screen the list went from 11.4 rows to 13.7.
+
+### D-123 · The day is the planning unit; §7.3 is shelved, not deleted — **Requested**
+
+§7.3's Pekan Ini is switched off for now. The tab is **Hari Ini**, and the
+scheduling engine underneath is untouched: `lib/scheduling/allocate.ts` is
+called with `from = to = today` and nothing else changed. The 340-test suite
+passes unmodified, which is the evidence that this is a UI change and not a
+rules change.
+
+What the screen shows, in the order the questions get asked:
+
+1. **Capacity**, from `freeMinutes(world.free)` — the same free-space map the
+   allocator will use, so the meter cannot promise a slot the allocator cannot
+   place (D-064, unchanged).
+2. **Rencana hari ini** — the day's agendas, with a **Mulai fokus** button on
+   the next unfinished one. One tap from planning to working, which is the whole
+   reason a daily screen is worth having.
+3. **Kandidat** — what still has pomodoros left to place, selectable.
+4. **Alokasikan** — appears only once something is selected, pinned above the
+   tab bar. A full-width primary button parked over an empty list is a row of
+   screen spent on a disabled control.
+
+`/week` stays as a redirect to `/today` rather than disappearing: a service
+worker installed before this change still precaches it (D-002), so an installed
+PWA can reach the old route once more before the new worker takes over.
+
+### D-124 · There is no "target hari ini" flag, and `focus_week` retires in place — **Interpreted**
+
+D-088 committed weekly targets to `focus_week` so a half-finished plan survived
+closing the wizard. The daily screen needs no equivalent, because **the plan is
+the day's agendas** — a commitment on a timeline, which survives rather better
+than a checkbox. The selection on the Kandidat list is therefore ephemeral
+state: it lives exactly as long as it takes to press Alokasikan.
+
+`todos.focus_week` keeps its column and its Dexie index; only the UI and
+`setFocusWeek()` are gone. The request was to shelve the weekly concept
+*temporarily*, and dropping the column would mean a Dexie v3 plus a Supabase
+migration now and two more to undo it — for data that harms nothing while it
+sits there. That is D-060's reasoning (a deleted category's dangling references
+are left alone) applied to a column.
+
+### D-125 · The wizard is two steps, and the second one allocates — **Requested**
+
+The third step walked the chosen todos through `ScheduleSheet` one at a time,
+in MIT order. That is the right shape for a week and the wrong one for a day:
+across seven days a deliberate placement per task is worth the taps, within one
+day the allocator gets it right in one press and any correction is a drag on the
+timeline that is already open.
+
+So step 2's button *is* the allocation. It writes the MITs as `priority = 1`
+first (D-088's reasoning holds — priority is the field the sorter, the grouping,
+the allocator and the task row all already understand), runs the same
+`allocateDay` the Hari Ini screen runs, then celebrates (D-089) and lands on the
+calendar in draft preview. `ScheduleSheet` still owns the ordinary "Jadwalkan"
+path, so no scheduling flow was lost — there is simply one fewer way in.
+
+### D-126 · One `allocateDay`, because two would diverge — **Filled a gap**
+
+Two screens now ask for "smart-allocate this day": the Hari Ini list and the
+wizard. Copied, the two would drift apart on exactly the details that are easy
+to get wrong and invisible when wrong — the parent-ordering floor from
+`existingEndByTodo` (D-081), and passing `places`/`commuteSpeedKmh` so the
+allocator reserves the same buffer the reconciler will later widen (D-061's
+class of bug).
+
+`lib/agendas/allocate-day.ts` assembles the call and writes the drafts. It is
+app-layer, not `lib/scheduling/` — it touches Dexie — and it adds no rules of its
+own; every rule it applies is one the pure module already owns.
+
+### D-127 · Where the whole row is the control, the checkbox stops being one — **Bug found in the browser**
+
+Caught by the touch-target audit, not by review. The Kandidat row had a 20 px
+`Checkbox` and a 20 px line of text as two separate controls inside a 44 px row,
+so the audit reported two failures per row — and a real `Checkbox` inside the
+row's own `<button>` is a `<button>` inside a `<button>`, which is invalid
+markup. (The planning wizard had shipped the same nesting since D-088.)
+
+`CheckIndicator` is the fix: the look of a checkbox with none of its behaviour,
+`aria-hidden`, with the row's button carrying the `aria-pressed` and the label.
+One control, one 44 px target, valid markup. Both call sites use it.
+
+### Verification
+
+`npm run lint`, `npm run typecheck` and `npm run build` are clean; the Vitest
+suite is green at 340 tests, **unchanged** — no test needed editing, which is
+the point.
+
+Measured in Chromium at 390×844, Asia/Jakarta, against the same build with the
+same seeded data:
+
+| | before | after |
+|---|---|---|
+| Tugas: header | 153 px | 141 px |
+| Tugas: row height | 53 px | 45 px |
+| Tugas: rows in view | 11.4 | **13.7** |
+| Kalender: header | 176 px | 143 px |
+| Kalender: timeline in view | 583 px | **616 px** (+22 minutes at 1.5 px/min) |
+| Hari Ini: header | 139 px | 86 px |
+| Hari Ini: rows in view | 11.5 | **15.3** |
+| Pengaturan: scroll height | 4242 px | **3841 px** |
+
+Driven end to end: three todos seeded through quick capture → **Hari Ini**
+reported "Terpakai 0 / kapasitas 36 pomodoro" → all three selected → **Alokasikan
+3 tugas** → landed on the calendar with the "Terapkan 3 draf" bar → applied →
+back on Hari Ini the plan read 08:16, 08:51, 09:26 and the meter moved to
+"Terpakai 3 / kapasitas 35" (the day lost more than three pomodoros of capacity
+because the buffers are real space, which is the honest answer) → **Mulai fokus**
+opened the running timer. `/week` redirected to `/today`. Both themes checked on
+all four tabs, and the calendar header in day and 3-day view.
