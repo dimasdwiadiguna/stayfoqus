@@ -98,7 +98,7 @@ function ToastItem({ item }: { item: Toast }) {
       transition={{ duration: 0.18 }}
       role="status"
       className={cn(
-        "pointer-events-auto flex items-center gap-3 rounded-xl border px-3.5 py-3 shadow-xl backdrop-blur",
+        "pointer-events-auto flex items-center gap-3 rounded-xl border px-3 py-2.5 shadow-xl backdrop-blur",
         item.tone === "danger"
           ? "border-danger/40 bg-surface-2"
           : item.tone === "success"

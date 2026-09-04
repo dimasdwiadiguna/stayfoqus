@@ -193,6 +193,32 @@
   }
 }
 
+/*
+ * A control shorter than 44 px that still costs 44 px to miss (M10's a11y
+ * rule).
+ *
+ * The band is a fixed 2.75rem centred on the control rather than a symmetric
+ * negative inset, so one utility serves every height the app compacts to — a
+ * 36 px icon button gains 4 px a side, a 28 px chip gains 8 — and none of them
+ * gains a single pixel of layout. That is the whole trick: compaction is
+ * layout, not touch targets (D-098).
+ *
+ * It belongs only in rows that scroll horizontally rather than wrap. In a
+ * wrapping row the band overlaps the line below and steals its taps.
+ */
+@utility tap-44 {
+  position: relative;
+  &::before {
+    content: "";
+    position: absolute;
+    top: 50%;
+    right: 0;
+    left: 0;
+    height: 2.75rem;
+    transform: translateY(-50%);
+  }
+}
+
 /* §9: every animation must respect prefers-reduced-motion. */
 @media (prefers-reduced-motion: reduce) {
   *,

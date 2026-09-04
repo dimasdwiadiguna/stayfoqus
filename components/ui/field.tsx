@@ -20,7 +20,7 @@ export function Field({
   htmlFor?: string;
 }) {
   return (
-    <div className={cn("space-y-1.5", className)}>
+    <div className={cn("space-y-1", className)}>
       {label ? (
         <label
           htmlFor={htmlFor}
@@ -66,7 +66,7 @@ export function Switch({
   return (
     <Sw.Root
       className={cn(
-        "relative inline-flex h-6 w-11 shrink-0 items-center rounded-full border border-border bg-surface-3 transition-colors data-[state=checked]:border-accent data-[state=checked]:bg-accent",
+        "tap-44 inline-flex h-6 w-11 shrink-0 items-center rounded-full border border-border bg-surface-3 transition-colors data-[state=checked]:border-accent data-[state=checked]:bg-accent",
         className,
       )}
       {...props}
@@ -92,6 +92,36 @@ export function Checkbox({
         <Check className="size-3.5" strokeWidth={3} />
       </C.Indicator>
     </C.Root>
+  );
+}
+
+/**
+ * The look of a checkbox with none of its behaviour.
+ *
+ * For rows where the whole row is the control: a real `Checkbox` there would
+ * be a `<button>` inside a `<button>`, which is invalid markup and gives the
+ * user a 20 px target sitting inside the 44 px one they are aiming at.
+ */
+export function CheckIndicator({
+  checked,
+  className,
+}: {
+  checked: boolean;
+  className?: string;
+}) {
+  return (
+    <span
+      aria-hidden
+      className={cn(
+        "grid size-5 shrink-0 place-items-center rounded-md border-2 transition-colors",
+        checked
+          ? "border-accent bg-accent text-accent-fg"
+          : "border-border-strong text-transparent",
+        className,
+      )}
+    >
+      <Check className="size-3.5" strokeWidth={3} />
+    </span>
   );
 }
 
@@ -202,7 +232,7 @@ export function Segmented<T extends string>({
           aria-checked={value === opt.value}
           onClick={() => onChange(opt.value)}
           className={cn(
-            "min-h-9 rounded-md px-3 text-[13px] font-medium whitespace-nowrap transition-colors",
+            "tap-44 min-h-9 rounded-md px-3 text-[13px] font-medium whitespace-nowrap transition-colors",
             value === opt.value
               ? "bg-accent text-accent-fg"
               : "text-fg-muted hover:text-fg",
@@ -220,9 +250,9 @@ export function Segmented<T extends string>({
  *
  * `size="sm"` is for rows that scroll horizontally rather than wrap: it trades
  * 4 px of height for one more chip on a 390 px screen, and buys the touch
- * target back with an invisible 8 px band above and below (M10's ≥44 px rule).
- * That band would overlap the next line in a wrapping row, so the small size
- * belongs only in single-row contexts.
+ * target back with `tap-44` (M10's ≥44 px rule). That band would overlap the
+ * next line in a wrapping row, so the small size belongs only in single-row
+ * contexts.
  */
 export function Chip({
   active,
@@ -239,9 +269,7 @@ export function Chip({
       aria-pressed={active}
       className={cn(
         "relative inline-flex shrink-0 items-center gap-1.5 rounded-full border font-medium whitespace-nowrap transition-colors",
-        size === "sm"
-          ? "min-h-7 px-2.5 text-[12px] before:absolute before:inset-x-0 before:-top-2 before:-bottom-2 before:content-['']"
-          : "min-h-8 px-3 text-[13px]",
+        size === "sm" ? "tap-44 min-h-7 px-2.5 text-[12px]" : "min-h-8 px-3 text-[13px]",
         active
           ? "border-accent bg-accent-soft text-accent"
           : "border-border bg-surface-2 text-fg-muted hover:text-fg",

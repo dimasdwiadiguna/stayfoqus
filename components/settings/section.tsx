@@ -14,14 +14,14 @@ export function Section({
   children: React.ReactNode;
 }) {
   return (
-    <section className="border-b border-border px-4 py-5 last:border-b-0">
-      <h2 className="text-[13px] font-semibold tracking-wide text-fg-subtle uppercase">
+    <section className="border-b border-border px-4 py-3.5 last:border-b-0">
+      <h2 className="text-[11px] font-semibold tracking-wide text-fg-subtle uppercase">
         {title}
       </h2>
       {blurb ? (
-        <p className="mt-1 text-[12px] leading-relaxed text-fg-subtle">{blurb}</p>
+        <p className="mt-1 text-[11px] leading-relaxed text-fg-subtle">{blurb}</p>
       ) : null}
-      <div className="mt-3 space-y-3">{children}</div>
+      <div className="mt-2 space-y-2">{children}</div>
     </section>
   );
 }
@@ -38,10 +38,10 @@ export function Row({
   className?: string;
 }) {
   return (
-    <div className={cn("flex items-center justify-between gap-3", className)}>
+    <div className={cn("flex items-center justify-between gap-2", className)}>
       <div className="min-w-0">
-        <div className="text-[15px]">{label}</div>
-        {hint ? <div className="text-[12px] text-fg-subtle">{hint}</div> : null}
+        <div className="text-[13px]">{label}</div>
+        {hint ? <div className="text-[11px] text-fg-subtle">{hint}</div> : null}
       </div>
       <div className="shrink-0">{control}</div>
     </div>
@@ -68,16 +68,16 @@ export function Stepper({
 }) {
   const clamp = (n: number) => Math.max(min, Math.min(max, n));
   return (
-    <div className="flex items-center gap-1.5">
+    <div className="flex items-center gap-1">
       <button
         type="button"
         aria-label={`${label} −`}
         onClick={() => onChange(clamp(value - step))}
-        className="grid size-9 place-items-center rounded-md border border-border bg-surface-2 hover:bg-surface-3"
+        className="tap-44 grid size-9 place-items-center rounded-md border border-border bg-surface-2 hover:bg-surface-3"
       >
         −
       </button>
-      <span className="w-14 text-center text-[15px] font-medium tabular-nums">
+      <span className="w-12 text-center text-[15px] font-medium tabular-nums">
         {value}
         {suffix ? <span className="text-[11px] text-fg-subtle"> {suffix}</span> : null}
       </span>
@@ -85,7 +85,7 @@ export function Stepper({
         type="button"
         aria-label={`${label} +`}
         onClick={() => onChange(clamp(value + step))}
-        className="grid size-9 place-items-center rounded-md border border-border bg-surface-2 hover:bg-surface-3"
+        className="tap-44 grid size-9 place-items-center rounded-md border border-border bg-surface-2 hover:bg-surface-3"
       >
         +
       </button>

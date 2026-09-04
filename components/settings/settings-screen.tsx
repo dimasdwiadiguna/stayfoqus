@@ -80,12 +80,13 @@ export function SettingsScreen() {
 
         <SyncSection />
 
-        <Section title={t.settings.sectionAbout}>
-          <p className="text-[13px] leading-relaxed text-fg-muted">
-            {t.settings.aboutBlurb}
-          </p>
-          <Row label={t.settings.version} control={<span className="text-[13px] text-fg-subtle">1.0.0</span>} />
-        </Section>
+        {/*
+          Two facts that never change do not need a heading of their own. They
+          read as a footer, which is what they are.
+        */}
+        <p className="px-4 py-3 text-[11px] leading-relaxed text-fg-subtle">
+          {t.settings.aboutBlurb} · {t.settings.version} 1.0.0
+        </p>
       </div>
     </Screen>
   );
@@ -472,7 +473,7 @@ function AudioRow({
         control={
           <div className="flex items-center gap-2">
             {/* Preview doubles as the iOS audio unlock — it is a user gesture. */}
-            <Button size="sm" onClick={onPreview} disabled={!enabled}>
+            <Button size="sm" className="tap-44" onClick={onPreview} disabled={!enabled}>
               {t.settings.testSound}
             </Button>
             <Switch checked={enabled} aria-label={label} onCheckedChange={onToggle} />

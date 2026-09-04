@@ -25,7 +25,11 @@ const buttonVariants = cva(
         sm: "h-9 px-3 text-[13px]",
         lg: "h-12 px-6 text-base",
         icon: "size-11",
-        iconSm: "size-9",
+        // An icon button is 36 px because it lives in a toolbar row, and
+        // `tap-44` is what keeps that legal: the band it adds is invisible and
+        // costs no layout. `sm` deliberately does not get it — it appears in
+        // stacked list rows, where the band would reach into the row below.
+        iconSm: "tap-44 size-9",
       },
       block: { true: "w-full", false: "" },
     },
