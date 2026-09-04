@@ -9,10 +9,11 @@ import { SwipeRow, type SwipeAction } from "@/components/tasks/swipe-row";
 import {
   BlockedIcon,
   CategoryDot,
-  DueBadge,
   PriorityBar,
   RemainingBadge,
-  TagChips,
+  TaskMeta,
+  taskMetaCount,
+  type TaskMetaProps,
 } from "@/components/tasks/task-bits";
 import { Checkbox } from "@/components/ui/field";
 import type { Category, Todo } from "@/lib/db/schema";
@@ -68,6 +69,22 @@ export function TaskRow({
   const done = todo.status === "done";
   const blocked = blockers.length > 0;
 
+  /*
+   * One kind of metadata rides beside the title; two or more get a line of
+   * their own. Forcing everything onto one line is what truncates the figure
+   * the user came for (D-116), and giving a bare title a second line spends
+   * 16 px on nothing.
+   */
+  const meta: TaskMetaProps = {
+    due: todo.due_date,
+    overdue: Boolean(todo.due_date && todo.due_date < today && !done),
+    dueLabel: todo.due_date ? formatDayLabel(todo.due_date, timezone, today) : "",
+    childCount,
+    doneChildCount,
+    tags: todo.tags,
+  };
+  const metaCount = taskMetaCount(meta);
+
   const actions: SwipeAction[] = [
     {
       key: "schedule",
@@ -109,7 +126,7 @@ export function TaskRow({
         className="border-b border-border/60"
       >
         <div
-          className="flex min-h-[3.25rem] items-center gap-2.5 py-2 pr-3"
+          className="flex min-h-11 items-center gap-2 py-1.5 pr-3"
           style={{ paddingLeft: `${0.75 + depth * 1.25}rem` }}
         >
           <PriorityBar priority={todo.priority} />
@@ -123,7 +140,9 @@ export function TaskRow({
               checked={done}
               onCheckedChange={onToggleComplete}
               aria-label={todo.title}
-              className="size-6"
+              // The box is 24 px in a 44 px row; `tap-44` gives it the hit
+              // area M10 asks for without widening the row.
+              className="tap-44 size-6"
             />
           </span>
 
@@ -139,25 +158,10 @@ export function TaskRow({
                 {todo.title}
               </span>
               <BlockedIcon blockers={blockers} />
+              {metaCount === 1 ? <TaskMeta {...meta} inline /> : null}
             </div>
 
-            {(todo.due_date || todo.tags.length > 0 || childCount > 0) && (
-              <div className="mt-0.5 flex items-center gap-2 overflow-hidden">
-                <DueBadge
-                  due={todo.due_date}
-                  overdue={Boolean(todo.due_date && todo.due_date < today && !done)}
-                  label={
-                    todo.due_date ? formatDayLabel(todo.due_date, timezone, today) : ""
-                  }
-                />
-                {childCount > 0 ? (
-                  <span className="shrink-0 text-[11px] text-fg-subtle">
-                    {t.tasks.subtaskCount(doneChildCount, childCount)}
-                  </span>
-                ) : null}
-                <TagChips tags={todo.tags} />
-              </div>
-            )}
+            {metaCount > 1 ? <TaskMeta {...meta} className="mt-0.5" /> : null}
           </div>
 
           <RemainingBadge

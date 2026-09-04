@@ -13,6 +13,7 @@ import {
   SortableContext,
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
+import { Eye, EyeOff } from "lucide-react";
 import { AnimatePresence } from "motion/react";
 import * as React from "react";
 
@@ -30,6 +31,7 @@ import { QuickCapture } from "@/components/tasks/quick-capture";
 import { TodayHeader } from "@/components/tasks/today-header";
 import { TaskDetailSheet } from "@/components/tasks/task-detail-sheet";
 import { TaskRow } from "@/components/tasks/task-row";
+import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/dialog";
 import { Chip, Segmented } from "@/components/ui/field";
 import { toast } from "@/components/ui/toast";
@@ -246,7 +248,7 @@ export function TasksScreen({
   return (
     <Screen
       header={
-        <div className="space-y-2.5">
+        <div className="space-y-1.5">
           <ScreenTitle title={t.tasks.title} actions={<SyncIndicator />} />
           <TodayHeader />
           <div className="flex items-center gap-2">
@@ -261,18 +263,31 @@ export function TasksScreen({
                 { value: "priority", label: t.tasks.groupByPriority },
               ]}
             />
-            <Chip
-              active={filter.showDone}
-              className="ml-auto"
+            {/*
+              A word that never changes, on a row that has none to spare: the
+              eye says the same thing in an icon's width, and the sentence
+              survives in the label.
+            */}
+            <Button
+              size="iconSm"
+              variant="ghost"
+              className="tap-44 ml-auto"
+              aria-pressed={filter.showDone}
+              aria-label={t.tasks.showDone}
+              title={t.tasks.showDone}
               onClick={() =>
                 setFilter((f) => ({ ...f, showDone: !f.showDone }))
               }
             >
-              {t.tasks.showDone}
-            </Chip>
+              {filter.showDone ? (
+                <Eye className="size-4 text-accent" />
+              ) : (
+                <EyeOff className="size-4" />
+              )}
+            </Button>
           </div>
           {tags.length > 0 ? (
-            <div className="no-scrollbar -mx-4 flex gap-1.5 overflow-x-auto px-4 pb-0.5">
+            <div className="no-scrollbar -mx-4 flex gap-1 overflow-x-auto px-4">
               {tags.map((tag) => (
                 <Chip
                   key={tag}
@@ -309,10 +324,10 @@ export function TasksScreen({
           modifiers={[restrictToVerticalAxis]}
           onDragEnd={onDragEnd}
         >
-          <div className="pb-28">
+          <div className="pb-24">
             {groups.map((group) => (
               <section key={group.key}>
-                <h2 className="sticky top-0 z-10 flex items-center gap-2 bg-bg/95 px-4 py-1.5 text-[11px] font-semibold tracking-wide text-fg-subtle uppercase backdrop-blur">
+                <h2 className="sticky top-0 z-10 flex items-center gap-2 bg-bg/95 px-4 py-1 text-[11px] font-semibold tracking-wide text-fg-subtle uppercase backdrop-blur">
                   {group.color ? (
                     <span
                       aria-hidden

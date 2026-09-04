@@ -1,6 +1,6 @@
 "use client";
 
-import { Lock } from "lucide-react";
+import { CalendarDays, ListTree, Lock } from "lucide-react";
 
 import type { Category, Priority } from "@/lib/db/schema";
 import { id as t } from "@/lib/i18n/id";
@@ -59,11 +59,75 @@ export function DueBadge({
   return (
     <span
       className={cn(
-        "shrink-0 text-[11px] tabular-nums",
+        "inline-flex shrink-0 items-center gap-0.5 text-[11px] tabular-nums",
         overdue ? "font-medium text-danger" : "text-fg-subtle",
       )}
+      title={overdue ? t.tasks.overdue : undefined}
     >
+      <CalendarDays className="size-3 shrink-0" aria-hidden />
       {label}
+    </span>
+  );
+}
+
+export interface TaskMetaProps {
+  due: string | null;
+  overdue: boolean;
+  dueLabel: string;
+  childCount: number;
+  doneChildCount: number;
+  tags: string[];
+}
+
+/**
+ * How many kinds of metadata a todo has to show.
+ *
+ * The row asks before it decides whether the meta belongs beside the title or
+ * on a line of its own: one kind fits, two start truncating (D-116).
+ */
+export function taskMetaCount({ due, childCount, tags }: TaskMetaProps): number {
+  return (due ? 1 : 0) + (childCount > 0 ? 1 : 0) + (tags.length > 0 ? 1 : 0);
+}
+
+/**
+ * A todo's metadata as one line: due date, subtask progress, tags.
+ *
+ * Each figure is an icon plus a number, with the sentence it stands for kept in
+ * `title` — at 11 px the words cost more room than they earn, and the sentence
+ * is still there for a pointer and for a screen reader.
+ */
+export function TaskMeta({
+  due,
+  overdue,
+  dueLabel,
+  childCount,
+  doneChildCount,
+  tags,
+  inline = false,
+  className,
+}: TaskMetaProps & { inline?: boolean; className?: string }) {
+  if (taskMetaCount({ due, overdue, dueLabel, childCount, doneChildCount, tags }) === 0) {
+    return null;
+  }
+  return (
+    <span
+      className={cn(
+        "flex min-w-0 items-center gap-1.5 overflow-hidden",
+        inline && "shrink-0",
+        className,
+      )}
+    >
+      <DueBadge due={due} overdue={overdue} label={dueLabel} />
+      {childCount > 0 ? (
+        <span
+          className="inline-flex shrink-0 items-center gap-0.5 text-[11px] tabular-nums text-fg-subtle"
+          title={t.tasks.subtaskCount(doneChildCount, childCount)}
+        >
+          <ListTree className="size-3 shrink-0" aria-hidden />
+          {doneChildCount}/{childCount}
+        </span>
+      ) : null}
+      <TagChips tags={tags} limit={inline ? 1 : 3} />
     </span>
   );
 }
@@ -110,11 +174,11 @@ export function BlockedIcon({ blockers }: { blockers: string[] }) {
   );
 }
 
-export function TagChips({ tags }: { tags: string[] }) {
+export function TagChips({ tags, limit = 3 }: { tags: string[]; limit?: number }) {
   if (tags.length === 0) return null;
   return (
     <span className="flex min-w-0 gap-1 overflow-hidden">
-      {tags.slice(0, 3).map((tag) => (
+      {tags.slice(0, limit).map((tag) => (
         <span
           key={tag}
           className="truncate rounded bg-surface-3 px-1.5 text-[11px] text-fg-subtle"
