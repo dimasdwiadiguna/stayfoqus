@@ -383,11 +383,3 @@ export async function restoreTodos(
   for (const rowId of affected) await restoreRow("todos", rowId);
   for (const p of promoted) await updateRow("todos", p.id, { parent_id: p.parent_id });
 }
-
-/* ------------------------------------------------------------------ */
-/* weekly plan                                                         */
-/* ------------------------------------------------------------------ */
-
-export async function setFocusWeek(todoId: UUID, week: IsoWeek | null) {
-  await updateRow("todos", todoId, { focus_week: week });
-}

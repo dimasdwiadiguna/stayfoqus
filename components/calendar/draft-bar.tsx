@@ -38,10 +38,10 @@ export function DraftBar() {
           variant="ghost"
           onClick={() => {
             void discardDrafts(ids);
-            toast.show(t.week.reverted);
+            toast.show(t.today.reverted);
           }}
         >
-          {t.week.discardDrafts}
+          {t.today.discardDrafts}
         </Button>
         <Button
           variant="primary"
@@ -50,13 +50,13 @@ export function DraftBar() {
             void applyDrafts(ids);
             haptic();
             toast.undoable(
-              t.week.applied(ids.length),
+              t.today.applied(ids.length),
               () => void revertToDrafts(ids),
               { durationMs: UNDO_MS },
             );
           }}
         >
-          {t.week.applyDrafts(ids.length)}
+          {t.today.applyDrafts(ids.length)}
         </Button>
       </div>
     </div>

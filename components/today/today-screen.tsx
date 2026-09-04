@@ -1,209 +1,202 @@
 "use client";
 
-import { ChevronLeft, ChevronRight, Minus, Plus, Sparkles } from "lucide-react";
+import { CalendarClock, Play, Sparkles } from "lucide-react";
 import { useRouter } from "next/navigation";
 import * as React from "react";
 
+import { PomodoroDots } from "@/components/calendar/pomodoro-dots";
+import { PlanningWizard } from "@/components/planning/planning-wizard";
 import { EmptyState, Screen, ScreenTitle } from "@/components/shell/screen";
 import { SyncIndicator } from "@/components/shell/sync-indicator";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/field";
+import { CheckIndicator, Input } from "@/components/ui/field";
 import { toast } from "@/components/ui/toast";
 import { useNow } from "@/hooks/use-now";
 import { usePlaceIndex } from "@/hooks/use-places";
 import { useSchedulingWorld } from "@/hooks/use-scheduling";
 import { useSettings } from "@/hooks/use-settings";
 import { useTaskData } from "@/hooks/use-tasks";
-import { createAgenda } from "@/lib/agendas/repo";
-import { newId } from "@/lib/db/mutations";
-import type { Todo, UUID } from "@/lib/db/schema";
+import { allocateDay, nothingToAllocate } from "@/lib/agendas/allocate-day";
+import type { Agenda, Todo, UUID } from "@/lib/db/schema";
 import { id as t } from "@/lib/i18n/id";
+import { completedFocusFor, startFocusSession } from "@/lib/pomodoro/store";
+import { primeAudio } from "@/lib/pomodoro/audio";
 import {
-  allocate,
   freeMinutes,
   sessionDurationMin,
-  toSchedulable,
   type AllocationResult,
 } from "@/lib/scheduling";
-import { addWeeks, isoWeekDates, isoWeekOf, localDate } from "@/lib/time";
+import { formatTimeRange, localDate } from "@/lib/time";
 import { countersFor } from "@/lib/todos/derived";
-import { setFocusWeek } from "@/lib/todos/repo";
-import { depthOf, isBlocked } from "@/lib/todos/tree";
+import { isBlocked } from "@/lib/todos/tree";
 import { cn } from "@/lib/utils";
 
 /**
- * §7.3 — Pekan Ini.
+ * The day as the unit of planning (D-123), in place of §7.3's weekly screen.
  *
- * The capacity meter and the allocator both read the same free-space map, so
- * "kapasitas 48 pomodoro" and what "Alokasikan otomatis" can actually place
- * cannot drift apart.
+ * It answers three questions in the order they get asked: what am I committed
+ * to today, does it fit, and what do I start next. The capacity meter and the
+ * allocator read the same free-space map, so "kapasitas 12 pomodoro" and what
+ * "Alokasikan otomatis" can actually place cannot drift apart (D-064).
+ *
+ * There is no stored "target hari ini" flag. The plan *is* the day's agendas,
+ * which survives closing the screen better than a checkbox would; the
+ * selection below is deliberately ephemeral, because it lives only as long as
+ * it takes to press Alokasikan.
  */
-export function WeekScreen() {
+export function TodayScreen() {
   const router = useRouter();
   const settings = useSettings();
   const now = useNow();
   const { todos, index, counters, agendas } = useTaskData();
 
   const today = localDate(new Date(), settings.timezone);
-  const [week, setWeek] = React.useState(() => isoWeekOf(today));
   const [query, setQuery] = React.useState("");
+  const [selected, setSelected] = React.useState<ReadonlySet<UUID>>(new Set());
   const [running, setRunning] = React.useState(false);
   const [unfit, setUnfit] = React.useState<AllocationResult["unfit"]>([]);
+  const [planningOpen, setPlanningOpen] = React.useState(false);
 
-  const days = React.useMemo(() => isoWeekDates(week), [week]);
-  const from = days[0]!;
-  const to = days[6]!;
-
-  const world = useSchedulingWorld({ from, to });
+  const world = useSchedulingWorld({ from: today, to: today });
   const places = usePlaceIndex();
 
-  const targets = React.useMemo(
+  /* ---------------- today's plan ----------------------------------------- */
+
+  const plan = React.useMemo(
     () =>
-      todos.filter(
-        (todo) =>
-          todo.focus_week === week &&
-          todo.status !== "done" &&
-          todo.status !== "archived",
-      ),
-    [todos, week],
+      agendas
+        .filter(
+          (agenda) =>
+            agenda.status !== "cancelled" &&
+            agenda.status !== "draft" &&
+            localDate(agenda.start_at, settings.timezone) === today,
+        )
+        .sort((a, b) => a.start_at.localeCompare(b.start_at)),
+    [agendas, settings.timezone, today],
+  );
+
+  const titleOf = React.useCallback(
+    (agenda: Agenda) =>
+      agenda.title_override ?? index.byId.get(agenda.todo_id)?.title ?? "",
+    [index],
+  );
+
+  /** The one block worth a start button: the next that is not finished yet. */
+  const nextAgendaId = React.useMemo(() => {
+    const upcoming = plan.find(
+      (agenda) =>
+        agenda.status !== "done" &&
+        (now === null || new Date(agenda.end_at).getTime() > now),
+    );
+    return upcoming?.id ?? null;
+  }, [plan, now]);
+
+  /* ---------------- candidates ------------------------------------------- */
+
+  const scheduledToday = React.useMemo(
+    () => new Set(plan.map((agenda) => agenda.todo_id)),
+    [plan],
   );
 
   const candidates = React.useMemo(() => {
     const open = todos.filter(
       (todo) =>
-        todo.focus_week !== week &&
         todo.status !== "done" &&
-        todo.status !== "archived",
+        todo.status !== "archived" &&
+        !scheduledToday.has(todo.id) &&
+        countersFor(counters, todo.id).remainingToAllocate > 0,
     );
     if (!query.trim()) return open.slice(0, 30);
     const q = query.toLowerCase();
     return open.filter((todo) => todo.title.toLowerCase().includes(q)).slice(0, 30);
-  }, [todos, week, query]);
+  }, [todos, scheduledToday, counters, query]);
 
-  /* ---------------- capacity meter (§7.3) -------------------------------- */
+  /* ---------------- capacity meter --------------------------------------- */
 
   const capacity = React.useMemo(() => {
     const perPomodoroMin = sessionDurationMin(1, world.shape);
-    // Capacity is the free space the scheduler actually has: availability
-    // windows minus prayer blocks, existing commitments and busy time.
+    // What the scheduler actually has left: availability windows minus prayer
+    // blocks, existing commitments and busy time.
     const total = Math.floor(freeMinutes(world.free) / perPomodoroMin);
-    const used = targets.reduce(
-      (sum, todo) => sum + countersFor(counters, todo.id).allocated,
-      0,
-    );
-    const wanted = targets.reduce(
-      (sum, todo) => sum + todo.estimated_pomodoro,
-      0,
-    );
-    return { total, used, wanted };
-  }, [world.free, world.shape, targets, counters]);
+    const used = plan.reduce((sum, agenda) => sum + agenda.allocated_pomodoro, 0);
+    const wanted =
+      used +
+      todos
+        .filter((todo) => selected.has(todo.id))
+        .reduce(
+          (sum, todo) => sum + countersFor(counters, todo.id).remainingToAllocate,
+          0,
+        );
+    return { total: total + used, used, wanted };
+  }, [world.free, world.shape, plan, todos, selected, counters]);
 
-  /* ---------------- draft state ------------------------------------------ */
+  const over = capacity.wanted > capacity.total;
 
-  const [drafts, setDrafts] = React.useState<UUID[]>([]);
+  /* ---------------- allocation ------------------------------------------- */
 
   const runAllocation = async () => {
     setRunning(true);
     try {
-      const schedulable = targets.map((todo) =>
-        toSchedulable(
-          todo,
-          countersFor(counters, todo.id).remainingToAllocate,
-          isBlocked(index, todo),
-          depthOf(index, todo.id),
-        ),
-      );
-
-      // A parent must not start before its children — including children whose
-      // agendas already exist outside this run.
-      const existingEndByTodo = new Map<string, number>();
-      for (const agenda of agendas) {
-        if (agenda.status === "cancelled") continue;
-        const end = new Date(agenda.end_at).getTime();
-        existingEndByTodo.set(
-          agenda.todo_id,
-          Math.max(existingEndByTodo.get(agenda.todo_id) ?? -Infinity, end),
-        );
-      }
-
-      if (schedulable.every((s) => s.remainingToAllocate === 0)) {
-        toast.show(t.week.nothingToAllocate);
+      const picked = todos.filter((todo) => selected.has(todo.id));
+      if (nothingToAllocate(picked, counters)) {
+        toast.show(t.today.nothingToAllocate);
         return;
       }
 
-      const result = allocate({
-        todos: schedulable,
-        free: world.free,
-        timeBlocks: world.timeBlocks,
-        shape: world.shape,
-        buffers: world.buffers,
-        notBefore: now ?? undefined,
-        existingEndByTodo,
-        // Without these the allocator reserves the default buffer and the
-        // reconciler then widens it, so drafts placed back to back would
-        // overlap the moment they were applied.
+      const result = await allocateDay({
+        picked,
+        index,
+        counters,
+        agendas,
+        world,
         places,
-        commuteSpeedKmh: settings.commute_speed_kmh,
-        newId,
+        settings,
+        now,
       });
 
-      // §5.5 Step 5: everything lands as a draft, previewed on the calendar.
-      for (const placement of result.placements) {
-        await createAgenda(
-          {
-            id: placement.id,
-            todo_id: placement.todoId,
-            start_at: new Date(placement.start).toISOString(),
-            end_at: new Date(placement.end).toISOString(),
-            allocated_pomodoro: placement.pomodoros,
-            status: "draft",
-          },
-          settings,
-        );
-      }
-
-      setDrafts(result.placements.map((p) => p.id));
       setUnfit(result.unfit);
+      setSelected(new Set());
 
       if (result.placements.length === 0) {
         toast.show(t.agenda.noSlots);
         return;
       }
-      // Drop the user into the calendar in draft-preview mode (§7.3).
       router.push("/calendar");
     } finally {
       setRunning(false);
     }
   };
 
-  const over = capacity.wanted > capacity.total;
+  const toggle = (todoId: UUID) =>
+    setSelected((current) => {
+      const next = new Set(current);
+      if (next.has(todoId)) next.delete(todoId);
+      else next.add(todoId);
+      return next;
+    });
 
   return (
     <Screen
       header={
-        <div className="space-y-2">
-          <ScreenTitle title={t.week.title} actions={<SyncIndicator />} />
-          <div className="flex items-center gap-1">
-            <Button
-              size="iconSm"
-              variant="ghost"
-              aria-label={t.common.back}
-              onClick={() => setWeek((w) => addWeeks(w, -1))}
-            >
-              <ChevronLeft className="size-4" />
-            </Button>
-            <span className="min-w-0 flex-1 truncate text-center text-[13px] font-medium text-fg-muted">
-              {t.week.weekLabel(week)}
-            </span>
-            <Button
-              size="iconSm"
-              variant="ghost"
-              aria-label={t.common.confirm}
-              onClick={() => setWeek((w) => addWeeks(w, 1))}
-            >
-              <ChevronRight className="size-4" />
-            </Button>
-          </div>
+        <div className="space-y-1.5">
+          <ScreenTitle
+            title={t.today.title}
+            actions={
+              <>
+                <Button
+                  size="iconSm"
+                  variant="ghost"
+                  className="tap-44"
+                  aria-label={t.planning.button}
+                  title={t.planning.button}
+                  onClick={() => setPlanningOpen(true)}
+                >
+                  <CalendarClock className="size-4" />
+                </Button>
+                <SyncIndicator />
+              </>
+            }
+          />
           <CapacityMeter
             used={capacity.used}
             wanted={capacity.wanted}
@@ -213,66 +206,49 @@ export function WeekScreen() {
         </div>
       }
     >
-      <div className="space-y-5 px-4 py-4 pb-28">
-        <Button
-          variant="primary"
-          block
-          size="lg"
-          disabled={running || targets.length === 0}
-          onClick={() => void runAllocation()}
-        >
-          <Sparkles className="size-4" />
-          {running ? t.week.allocating : t.week.allocate}
-        </Button>
-
-        {drafts.length > 0 ? (
-          <p className="rounded-lg border border-accent/40 bg-accent-soft px-3 py-2 text-[13px] text-accent">
-            {t.week.applyDrafts(drafts.length)}
-          </p>
-        ) : null}
-
+      <div className="space-y-4 px-4 py-3 pb-28">
         {/* §5.5 Step 4 — the remainder panel. */}
         {unfit.length > 0 ? (
-          <section className="rounded-lg border border-warning/40 bg-warning/10 p-3">
-            <h2 className="text-[14px] font-semibold text-warning">
-              {t.week.unfitTitle(unfit.length)}
+          <section className="rounded-lg border border-warning/40 bg-warning/10 p-2.5">
+            <h2 className="text-[13px] font-semibold text-warning">
+              {t.today.unfitTitle(unfit.length)}
             </h2>
-            <ul className="mt-2 space-y-1">
+            <ul className="mt-1.5 space-y-0.5">
               {unfit.map((entry) => (
-                <li key={entry.todo.id} className="text-[13px] text-fg-muted">
+                <li key={entry.todo.id} className="text-[12px] text-fg-muted">
                   {entry.todo.title} · {entry.remaining} {t.common.pomodoro}
                 </li>
               ))}
             </ul>
-            <p className="mt-2 text-[12px] text-fg-subtle">{t.week.unfitHint}</p>
+            <p className="mt-1.5 text-[11px] text-fg-subtle">{t.today.unfitHint}</p>
           </section>
         ) : null}
 
-        <section className="space-y-2">
-          <h2 className="text-[13px] font-semibold tracking-wide text-fg-subtle uppercase">
-            {t.week.targetSection}
+        <section className="space-y-1.5">
+          <h2 className="text-[11px] font-semibold tracking-wide text-fg-subtle uppercase">
+            {t.today.planSection}
           </h2>
-          {targets.length === 0 ? (
-            <EmptyState title={t.week.targetEmpty} />
+          {plan.length === 0 ? (
+            <EmptyState title={t.today.planEmpty} />
           ) : (
-            <ul className="space-y-1.5">
-              {targets.map((todo) => (
-                <WeekRow
-                  key={todo.id}
-                  todo={todo}
-                  remaining={countersFor(counters, todo.id).remainingToAllocate}
-                  blocked={isBlocked(index, todo)}
-                  inWeek
-                  onToggle={() => void setFocusWeek(todo.id, null)}
+            <ul className="space-y-1">
+              {plan.map((agenda) => (
+                <PlanRow
+                  key={agenda.id}
+                  agenda={agenda}
+                  title={titleOf(agenda)}
+                  timezone={settings.timezone}
+                  completed={countersFor(counters, agenda.todo_id).used}
+                  startable={agenda.id === nextAgendaId}
                 />
               ))}
             </ul>
           )}
         </section>
 
-        <section className="space-y-2">
-          <h2 className="text-[13px] font-semibold tracking-wide text-fg-subtle uppercase">
-            {t.week.candidateSection}
+        <section className="space-y-1.5">
+          <h2 className="text-[11px] font-semibold tracking-wide text-fg-subtle uppercase">
+            {t.today.candidateSection}
           </h2>
           <Input
             value={query}
@@ -280,23 +256,49 @@ export function WeekScreen() {
             placeholder={t.common.search}
           />
           {candidates.length === 0 ? (
-            <p className="text-[13px] text-fg-subtle">{t.week.candidateEmpty}</p>
+            <p className="text-[12px] text-fg-subtle">{t.today.candidateEmpty}</p>
           ) : (
-            <ul className="space-y-1.5">
+            <ul className="space-y-1">
               {candidates.map((todo) => (
-                <WeekRow
+                <CandidateRow
                   key={todo.id}
                   todo={todo}
                   remaining={countersFor(counters, todo.id).remainingToAllocate}
                   blocked={isBlocked(index, todo)}
-                  inWeek={false}
-                  onToggle={() => void setFocusWeek(todo.id, week)}
+                  checked={selected.has(todo.id)}
+                  onToggle={() => toggle(todo.id)}
                 />
               ))}
             </ul>
           )}
         </section>
       </div>
+
+      {/*
+        The primary action costs nothing until there is something to allocate,
+        which is the point: a full-width button parked above an empty list is a
+        row of screen spent on a disabled control.
+      */}
+      {selected.size > 0 ? (
+        <div className="fixed inset-x-0 bottom-[calc(3.25rem+env(safe-area-inset-bottom,0px))] z-30 mx-auto max-w-md px-4 pb-2">
+          <Button
+            variant="primary"
+            block
+            disabled={running}
+            onClick={() => void runAllocation()}
+          >
+            <Sparkles className="size-4" />
+            {running
+              ? t.today.allocating
+              : t.today.allocateSelected(selected.size)}
+          </Button>
+        </div>
+      ) : null}
+
+      <PlanningWizard
+        open={planningOpen}
+        onClose={() => setPlanningOpen(false)}
+      />
     </Screen>
   );
 }
@@ -317,7 +319,7 @@ function CapacityMeter({
 
   return (
     <div className="space-y-1">
-      <div className="relative h-2 overflow-hidden rounded-full bg-surface-3">
+      <div className="relative h-1.5 overflow-hidden rounded-full bg-surface-3">
         <div
           className={cn(
             "absolute inset-y-0 left-0 rounded-full",
@@ -335,49 +337,114 @@ function CapacityMeter({
       </div>
       <p
         className={cn(
-          "text-[12px] tabular-nums",
+          "text-[11px] tabular-nums",
           over ? "text-warning" : "text-fg-subtle",
         )}
       >
-        {t.week.capacity(wanted, total)}
-        {over ? ` · ${t.week.capacityOver}` : ""}
+        {t.today.capacity(wanted, total)}
+        {over ? ` · ${t.today.capacityOver}` : ""}
       </p>
     </div>
   );
 }
 
-function WeekRow({
+function PlanRow({
+  agenda,
+  title,
+  timezone,
+  completed,
+  startable,
+}: {
+  agenda: Agenda;
+  title: string;
+  timezone: string;
+  completed: number;
+  startable: boolean;
+}) {
+  return (
+    <li
+      className={cn(
+        "flex min-h-11 items-center gap-2 rounded-lg border border-border bg-surface-2 px-2.5 py-1.5",
+        agenda.status === "done" && "opacity-60",
+      )}
+    >
+      <span className="shrink-0 text-[11px] tabular-nums text-fg-subtle">
+        {formatTimeRange(agenda.start_at, agenda.end_at, timezone)}
+      </span>
+      <span className="min-w-0 flex-1 truncate text-[13px]">{title}</span>
+      <PomodoroDots
+        allocated={agenda.allocated_pomodoro}
+        completed={Math.min(completed, agenda.allocated_pomodoro)}
+        running={false}
+        size={6}
+      />
+      {startable ? (
+        <Button
+          size="iconSm"
+          variant="primary"
+          className="tap-44"
+          aria-label={t.focus.start}
+          title={t.focus.start}
+          onClick={() => {
+            // Synchronously, before any await — the unlock is only honoured
+            // while the call stack still belongs to the tap (D-080).
+            primeAudio();
+            void (async () => {
+              const done = await completedFocusFor(agenda.id);
+              await startFocusSession({
+                agendaId: agenda.id,
+                todoId: agenda.todo_id,
+                alreadyCompleted: done,
+                isOvertime: done >= agenda.allocated_pomodoro,
+              });
+            })();
+          }}
+        >
+          <Play className="size-4" />
+        </Button>
+      ) : null}
+    </li>
+  );
+}
+
+function CandidateRow({
   todo,
   remaining,
   blocked,
-  inWeek,
+  checked,
   onToggle,
 }: {
   todo: Todo;
   remaining: number;
   blocked: boolean;
-  inWeek: boolean;
+  checked: boolean;
   onToggle: () => void;
 }) {
   return (
-    <li
-      className={cn(
-        "flex items-center gap-2 rounded-lg border border-border bg-surface-2 px-3 py-2",
-        blocked && "opacity-55",
-      )}
-    >
-      <span className="min-w-0 flex-1 truncate text-[15px]">{todo.title}</span>
-      <span className="shrink-0 text-[12px] tabular-nums text-fg-subtle">
-        {remaining}/{todo.estimated_pomodoro}
-      </span>
-      <Button
-        size="iconSm"
-        variant="ghost"
-        aria-label={inWeek ? t.week.removeFromWeek : t.week.addToWeek}
+    <li>
+      {/*
+        The whole row is the control, with the checkbox as its indicator — a
+        20 px box next to a 20 px line of text is two targets that both miss
+        M10's 44 px rule, and neither of them is the thing the user is aiming
+        at.
+      */}
+      <button
+        type="button"
         onClick={onToggle}
+        aria-pressed={checked}
+        aria-label={checked ? t.today.deselectTodo : t.today.selectTodo}
+        className={cn(
+          "flex min-h-11 w-full items-center gap-2 rounded-lg border bg-surface-2 px-2.5 py-1.5 text-left",
+          checked ? "border-accent" : "border-border",
+          blocked && "opacity-55",
+        )}
       >
-        {inWeek ? <Minus className="size-4" /> : <Plus className="size-4" />}
-      </Button>
+        <CheckIndicator checked={checked} />
+        <span className="min-w-0 flex-1 truncate text-[13px]">{todo.title}</span>
+        <span className="shrink-0 text-[11px] tabular-nums text-fg-subtle">
+          {remaining}/{todo.estimated_pomodoro}
+        </span>
+      </button>
     </li>
   );
 }

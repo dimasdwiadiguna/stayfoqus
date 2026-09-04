@@ -26,7 +26,7 @@ export default function manifest(): MetadataRoute.Manifest {
     shortcuts: [
       { name: id.nav.tasks, url: "/tasks" },
       { name: id.nav.calendar, url: "/calendar" },
-      { name: id.nav.week, url: "/week" },
+      { name: id.nav.today, url: "/today" },
     ],
   };
 }
