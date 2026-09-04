@@ -32,7 +32,7 @@ export function Screen({
         // The safe-area inset lives on the app shell now, since the ticker sits
         // above every header; applying it here as well would double it.
         <header className="sticky top-0 z-20 shrink-0 border-b border-border bg-bg/95 backdrop-blur">
-          <div className="mx-auto max-w-md px-4 py-2.5">{header}</div>
+          <div className="mx-auto max-w-md px-4 py-2">{header}</div>
         </header>
       ) : null}
       <div
@@ -75,7 +75,7 @@ export function EmptyState({
   action?: React.ReactNode;
 }) {
   return (
-    <div className="flex flex-col items-center gap-3 px-8 py-16 text-center">
+    <div className="flex flex-col items-center gap-3 px-6 py-10 text-center">
       <p className="text-sm text-fg-muted">{title}</p>
       {hint ? <p className="text-[13px] text-fg-subtle">{hint}</p> : null}
       {action}

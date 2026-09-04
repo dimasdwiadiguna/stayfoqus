@@ -46,7 +46,6 @@ export function CategoryEditor() {
                   void updateRow("categories", category.id, { name });
                 }
               }}
-              className="h-10"
             />
             <Button
               size="iconSm"
@@ -114,7 +113,7 @@ function ColorPicker({
       type="button"
       aria-label={`${t.settings.categoryColor} ${label}`}
       onClick={() => onChange(PALETTE[(index + 1) % PALETTE.length]!)}
-      className="size-8 shrink-0 rounded-full border border-border-strong"
+      className="tap-44 size-8 shrink-0 rounded-full border border-border-strong"
       style={{ backgroundColor: value }}
     />
   );

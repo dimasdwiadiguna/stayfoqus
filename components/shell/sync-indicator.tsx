@@ -37,7 +37,7 @@ export function SyncIndicator() {
       aria-label={label}
       title={label}
       className={cn(
-        "inline-flex min-h-9 items-center gap-1.5 rounded-full px-2 text-[11px] font-medium",
+        "tap-44 inline-flex min-h-9 items-center gap-1.5 rounded-full px-2 text-[11px] font-medium",
         tone,
       )}
     >

@@ -11,7 +11,6 @@ import {
   Field,
   Input,
   Select,
-  Switch,
   Textarea,
 } from "@/components/ui/field";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
@@ -19,7 +18,7 @@ import { toast } from "@/components/ui/toast";
 import { useAgendasForTodo } from "@/hooks/use-tasks";
 import type { Category, Priority, Todo, UUID } from "@/lib/db/schema";
 import { id as t } from "@/lib/i18n/id";
-import { formatDateWithWeekday, formatTimeRange, isoWeekOf, localDate } from "@/lib/time";
+import { formatDateWithWeekday, formatTimeRange, localDate } from "@/lib/time";
 import { createTodo, setDependencies, updateTodo } from "@/lib/todos/repo";
 import { buildTodoIndex, childrenOf, descendantsOf } from "@/lib/todos/tree";
 import { cn } from "@/lib/utils";
@@ -109,8 +108,6 @@ function DetailBody({
       toast.error(t.tasks.cycleDetected(result.cycle.map((c) => c.title)));
     }
   };
-
-  const thisWeek = isoWeekOf(localDate(new Date(), timezone));
 
   return (
     <div className="space-y-5 pb-2">
@@ -207,14 +204,6 @@ function DetailBody({
           </Button>
         </div>
       </Field>
-
-      <label className="flex items-center justify-between gap-3 rounded-lg border border-border bg-surface-2 px-3 py-2.5">
-        <span className="text-[15px]">{t.tasks.fieldFocusWeek}</span>
-        <Switch
-          checked={todo.focus_week === thisWeek}
-          onCheckedChange={(on) => patch({ focus_week: on ? thisWeek : null })}
-        />
-      </label>
 
       {/* ----- subtasks ----- */}
       <section className="space-y-2">

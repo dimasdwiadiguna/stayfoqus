@@ -1,6 +1,6 @@
 "use client";
 
-import { CalendarDays, CheckSquare, Settings, Target } from "lucide-react";
+import { CalendarCheck, CalendarDays, CheckSquare, Settings } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { Route } from "next";
@@ -11,7 +11,7 @@ import { cn } from "@/lib/utils";
 const TABS = [
   { href: "/tasks", label: t.nav.tasks, Icon: CheckSquare },
   { href: "/calendar", label: t.nav.calendar, Icon: CalendarDays },
-  { href: "/week", label: t.nav.week, Icon: Target },
+  { href: "/today", label: t.nav.today, Icon: CalendarCheck },
   { href: "/settings", label: t.nav.settings, Icon: Settings },
 ] as const satisfies ReadonlyArray<{ href: Route; label: string; Icon: unknown }>;
 

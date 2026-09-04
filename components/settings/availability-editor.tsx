@@ -82,7 +82,7 @@ export function AvailabilityEditor() {
                               start_time: e.target.value,
                             })
                           }
-                          className="h-10 flex-1"
+                          className="flex-1"
                         />
                         <span className="text-fg-subtle">–</span>
                         <Input
@@ -95,7 +95,7 @@ export function AvailabilityEditor() {
                               end_time: e.target.value,
                             })
                           }
-                          className="h-10 flex-1"
+                          className="flex-1"
                         />
                         <Switch
                           checked={w.enabled}
