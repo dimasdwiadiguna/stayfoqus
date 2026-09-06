@@ -2,6 +2,7 @@
 
 import * as React from "react";
 
+import { PomodoroCountStepper } from "@/components/tasks/pomodoro-count";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import type { Todo } from "@/lib/db/schema";
@@ -62,25 +63,7 @@ function PromptBody({
       }
     >
       <div className="space-y-3 pb-2">
-        <div className="flex items-center justify-center gap-5 py-5">
-          <Button
-            size="icon"
-            aria-label="-"
-            onClick={() => setValue((n) => Math.max(0, n - 1))}
-          >
-            −
-          </Button>
-          <span className="w-16 text-center text-4xl font-semibold tabular-nums">
-            {value}
-          </span>
-          <Button
-            size="icon"
-            aria-label="+"
-            onClick={() => setValue((n) => Math.min(99, n + 1))}
-          >
-            +
-          </Button>
-        </div>
+        <PomodoroCountStepper value={value} onChange={setValue} />
 
         <p className="text-center text-[13px] text-fg-muted">
           {value === 0 ? t.tasks.completedPomodoroNone : t.tasks.completedPomodoroHint}

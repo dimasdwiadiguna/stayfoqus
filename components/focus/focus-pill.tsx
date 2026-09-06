@@ -42,7 +42,7 @@ export function FocusPill() {
       onClick={() => setMinimized(false)}
       aria-label={t.focus.minimized}
       className={cn(
-        "fixed inset-x-3 bottom-[calc(4.25rem+env(safe-area-inset-bottom,0px))] z-40 mx-auto flex max-w-md items-center gap-3 rounded-full border px-4 py-2.5 shadow-lg backdrop-blur",
+        "fixed inset-x-3 above-tabs-gap z-40 mx-auto flex max-w-md items-center gap-3 rounded-full border px-4 py-2.5 shadow-lg backdrop-blur",
         isBreak
           ? "border-prayer/40 bg-prayer/15"
           : "border-accent/40 bg-accent-soft",

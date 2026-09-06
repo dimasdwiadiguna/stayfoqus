@@ -91,7 +91,7 @@ export function CommuteField({
         <div className="flex items-center gap-2">
           <Car className="size-4 shrink-0 text-buffer-commute" />
           <span className="text-[14px] font-medium tabular-nums">
-            {minutes > 0 ? formatDuration(minutes) : "—"}
+            {minutes > 0 ? formatDuration(minutes) : t.agenda.commuteZero}
           </span>
         </div>
 

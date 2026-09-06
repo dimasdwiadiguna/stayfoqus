@@ -92,14 +92,16 @@ export function NowTicker() {
           <>
             <Slot activity={next} label={describeActivity(next, agendas, todos)} />
             {/*
-              Always pulsing, because a countdown that sits still is just a
-              number; the colour is what escalates under five minutes.
+              The pulse belongs to the last five minutes, not to the whole day.
+              Motion that never stops stops meaning anything, and the strip is
+              mounted for the life of the app; colour and movement now escalate
+              together at the moment there is something to escalate about.
               `prefers-reduced-motion` is honoured globally in globals.css.
             */}
             <span
               className={cn(
-                "shrink-0 animate-pulse text-[13px] font-semibold tabular-nums",
-                soon ? "text-warning" : "text-fg",
+                "shrink-0 text-[13px] font-semibold tabular-nums",
+                soon ? "animate-pulse text-warning" : "text-fg",
               )}
             >
               {formatCountdown(untilMs ?? 0)}

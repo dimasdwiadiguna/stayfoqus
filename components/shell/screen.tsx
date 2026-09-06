@@ -50,6 +50,19 @@ export function Screen({
   );
 }
 
+/**
+ * The screen's heading and its actions.
+ *
+ * The heading is `sr-only`. Every screen sat under a tab bar that already
+ * carries its name in the same words ("Tugas", "Kalender", "Hari Ini",
+ * "Pengaturan"), so the visible `h1` was a row of chrome that told the user
+ * something they were already looking at. The heading itself stays, because a
+ * screen reader has no tab bar to look at and the document still needs one.
+ *
+ * The actions do not go with it. They render as a compact row that the caller
+ * places beside its own first row of controls, so what was a title row becomes
+ * a corner of an existing one.
+ */
 export function ScreenTitle({
   title,
   actions,
@@ -58,10 +71,12 @@ export function ScreenTitle({
   actions?: React.ReactNode;
 }) {
   return (
-    <div className="flex items-center justify-between gap-3">
-      <h1 className="text-lg font-semibold tracking-tight">{title}</h1>
-      {actions ? <div className="flex items-center gap-1.5">{actions}</div> : null}
-    </div>
+    <>
+      <h1 className="sr-only">{title}</h1>
+      {actions ? (
+        <div className="flex shrink-0 items-center gap-1.5">{actions}</div>
+      ) : null}
+    </>
   );
 }
 

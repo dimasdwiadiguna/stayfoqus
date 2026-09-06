@@ -34,7 +34,12 @@ export function AvailabilityEditor() {
   }, [windows]);
 
   return (
-    <Section title={t.settings.sectionAvailability} blurb={t.settings.availabilityBlurb}>
+    <Section
+      title={t.settings.sectionAvailability}
+      blurb={t.settings.availabilityBlurb}
+      collapsible
+      storageKey="availability"
+    >
       {DAYS.map((day) => {
         const list = byDay.get(day) ?? [];
         return (

@@ -4,6 +4,7 @@ import { AnimatePresence, motion } from "motion/react";
 import * as React from "react";
 import { create } from "zustand";
 
+import { id as t } from "@/lib/i18n/id";
 import { cn } from "@/lib/utils";
 
 export type ToastTone = "default" | "success" | "danger";
@@ -76,7 +77,7 @@ export const toast = {
     useToastStore.getState().push({
       message,
       durationMs: opts?.durationMs ?? 5000,
-      action: { label: opts?.label ?? "Urungkan", onAction: onUndo },
+      action: { label: opts?.label ?? t.common.undo, onAction: onUndo },
       onExpire: opts?.onExpire,
     }),
 };
@@ -128,7 +129,7 @@ function ToastItem({ item }: { item: Toast }) {
 export function Toaster() {
   const toasts = useToastStore((s) => s.toasts);
   return (
-    <div className="pointer-events-none fixed inset-x-0 bottom-[calc(4.25rem+env(safe-area-inset-bottom,0px))] z-[80] mx-auto flex max-w-md flex-col gap-2 px-3">
+    <div className="pointer-events-none fixed inset-x-0 above-tabs-gap z-[80] mx-auto flex max-w-md flex-col gap-2 px-3">
       <AnimatePresence initial={false}>
         {toasts.map((t) => (
           <ToastItem key={t.id} item={t} />

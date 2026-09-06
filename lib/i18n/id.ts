@@ -27,6 +27,7 @@ export const id = {
     add: "Tambah",
     apply: "Terapkan",
     undo: "Urungkan",
+    moreDetail: "Detail lainnya",
     confirm: "Lanjutkan",
     search: "Cari",
     today: "Hari ini",
@@ -61,7 +62,7 @@ export const id = {
     queueEmpty: "Semua perubahan sudah tersimpan.",
     lastPulled: "Terakhir ditarik",
     never: "Belum pernah",
-    localOnly: "Mode lokal — Supabase belum dikonfigurasi.",
+    localOnly: "Mode lokal. Supabase belum dikonfigurasi.",
   },
 
   auth: {
@@ -90,6 +91,9 @@ export const id = {
     later: "Nanti",
     inbox: "Inbox",
     showDone: "Tampilkan selesai",
+    searchPlaceholder: "Cari judul, catatan, atau tag",
+    searchOpen: "Cari tugas",
+    searchClose: "Tutup pencarian",
     blocked: "Terkunci",
     blockedBy: (names: string[]) => `Menunggu: ${names.join(", ")}`,
     remainingToAllocate: (n: number) => `${n} belum dijadwalkan`,
@@ -127,12 +131,12 @@ export const id = {
     completedPomodoroHint:
       "Ditambahkan ke pomodoro selesai dan pomodoro terencana hari ini.",
     completedPomodoroAlready: (n: number) =>
-      `${n} sudah tercatat hari ini — sisanya yang ditambahkan.`,
+      `${n} sudah tercatat hari ini, sisanya yang ditambahkan.`,
     completedPomodoroNone: "Tidak ada pomodoro",
     completedWithAgendas: (n: number) =>
       `Tugas selesai. ${n} agenda ikut ditandai selesai.`,
     autoCompleted: (title: string) =>
-      `Semua agenda "${title}" selesai — tugasnya ikut ditandai selesai.`,
+      `Semua agenda "${title}" selesai, tugasnya ikut ditandai selesai.`,
   },
 
   priority: {
@@ -266,7 +270,7 @@ export const id = {
     immediatelyAfter: "Langsung setelah agenda sebelumnya",
     unlinkImmediatelyAfter: "Lepas dari agenda sebelumnya",
     immediatelyAfterHint:
-      "Terkunci ke jam selesai buffer agenda sebelumnya — kalau agenda itu digeser, yang ini ikut.",
+      "Terkunci ke jam selesai buffer agenda sebelumnya. Kalau agenda itu digeser, yang ini ikut.",
     immediatelyAfterBadge: "Mengikuti",
     followsNamed: (title: string) => `Mengikuti: ${title}`,
     linkCycle: "Tidak bisa: rantainya akan berputar.",
@@ -301,7 +305,8 @@ export const id = {
     commuteSetManual: "Atur manual",
     commuteRecompute: "Hitung otomatis",
     commuteNoHome: "Atur pin rumah di Pengaturan agar perjalanan bisa dihitung.",
-    commuteNone: "Tanpa lokasi — tidak ada buffer perjalanan.",
+    commuteNone: "Tanpa lokasi, tidak ada buffer perjalanan.",
+    commuteZero: "Tanpa perjalanan",
   },
 
   location: {
@@ -479,7 +484,7 @@ export const id = {
 
     locationTitle: "Lokasi & perjalanan",
     locationBlurb:
-      "Beri lokasi pada tugas atau event, dan buffer perjalanannya dihitung sendiri dari jarak — dianggap kamu berangkat dari rumah setiap awal hari. Tanpa lokasi, tidak ada buffer perjalanan.",
+      "Beri lokasi pada tugas atau event, dan buffer perjalanannya dihitung sendiri dari jarak (dianggap kamu berangkat dari rumah setiap awal hari). Tanpa lokasi, tidak ada buffer perjalanan.",
     homePlace: "Rumah",
     homePlaceUnset: "Belum diatur",
     homePlaceHint: "Titik awal setiap hari.",
@@ -491,7 +496,7 @@ export const id = {
     placeDeleted: "Tempat dihapus.",
 
     prayerBlurb:
-      "Dihitung offline dari koordinatmu. Blok dipusatkan pada waktu adzan — separuh pertamanya jadi waktu bersiap, jadi durasi 20 menit berarti 10 menit sebelum adzan dan 10 menit sesudahnya. Blok sholat tidak pernah dikirim ke Google Calendar.",
+      "Dihitung offline dari koordinatmu. Blok dipusatkan pada waktu adzan: separuh pertamanya jadi waktu bersiap, jadi durasi 20 menit berarti 10 menit sebelum adzan dan 10 menit sesudahnya. Blok sholat tidak pernah dikirim ke Google Calendar.",
     prayerLocation: "Lokasi",
     prayerLatitude: "Lintang",
     prayerLongitude: "Bujur",
@@ -517,9 +522,10 @@ export const id = {
     bellVolume: "Volume bel",
     testSound: "Coba suara",
     audioStatus: "Status audio",
-    audioLocked: "Belum aktif — ketuk “Coba suara” sekali.",
-    audioSuspended: "Tertahan — ketuk “Coba suara” untuk mengaktifkan lagi.",
+    audioLocked: "Ketuk “Coba suara” sekali untuk mengaktifkan.",
+    audioSuspended: "Tertahan di latar belakang. Ketuk “Coba suara” untuk melanjutkan.",
     audioRunning: "Aktif",
+    audioInactive: "Belum aktif",
     audioUnsupported: "Perangkat ini tidak mendukung Web Audio.",
     audioIosHint:
       "Di iPhone, saklar senyap (silent switch) juga membisukan suara ini. Kalau sudah aktif tapi tetap tak terdengar, coba matikan mode senyap.",
@@ -544,7 +550,7 @@ export const id = {
     timeBlockFilterCategories: "Hanya kategori",
     timeBlockFilterTags: "Hanya tag",
     timeBlockFilterPriorities: "Hanya prioritas",
-    timeBlockNoFilter: "Tanpa filter — semua tugas boleh masuk.",
+    timeBlockNoFilter: "Tanpa filter, semua tugas boleh masuk.",
     timeBlockSkipInstance: "Lewati hari ini",
     timeBlockSkipped: "Dilewati",
     timeBlockUnskip: "Aktifkan lagi",
@@ -555,7 +561,7 @@ export const id = {
     themeSystem: "Ikuti sistem",
 
     aboutBlurb:
-      "FOQUS — sistem GTD lokal-dulu yang mengubah niat jadi blok waktu.",
+      "FOQUS: sistem GTD lokal-dulu yang mengubah niat jadi blok waktu.",
     version: "Versi",
   },
 

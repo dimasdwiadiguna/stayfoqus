@@ -39,7 +39,12 @@ export function TimeBlockEditor() {
   const [editingId, setEditingId] = React.useState<UUID | null>(null);
 
   return (
-    <Section title={t.settings.sectionTimeBlocks} blurb={t.settings.timeBlockBlurb}>
+    <Section
+      title={t.settings.sectionTimeBlocks}
+      blurb={t.settings.timeBlockBlurb}
+      collapsible
+      storageKey="time-blocks"
+    >
       {blocks.length === 0 ? (
         <p className="text-[13px] text-fg-subtle">{t.common.none}</p>
       ) : (

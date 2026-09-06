@@ -5,9 +5,12 @@ import {
   ChevronLeft,
   ChevronRight,
   ClipboardList,
+  Columns3,
   Hourglass,
+  List,
   Maximize2,
   Minimize2,
+  Square,
   Timer,
 } from "lucide-react";
 import * as React from "react";
@@ -537,23 +540,7 @@ export function CalendarScreen() {
         // Kept to three thin rows: on a 390px screen every row of chrome is a
         // row of timeline the user does not get to see.
         <div className="space-y-1.5">
-          <ScreenTitle
-            title={t.calendar.title}
-            actions={
-              <>
-                <Button
-                  size="iconSm"
-                  variant="ghost"
-                  aria-label={t.planning.button}
-                  title={t.planning.button}
-                  onClick={() => setPlanningOpen(true)}
-                >
-                  <ClipboardList className="size-4" />
-                </Button>
-                <SyncIndicator />
-              </>
-            }
-          />
+          <ScreenTitle title={t.calendar.title} />
 
           <div className="flex items-center gap-1">
             <Button
@@ -628,14 +615,31 @@ export function CalendarScreen() {
           </div>
 
           <div className="flex items-center gap-2">
+            {/*
+              Three glyphs rather than "Hari / 3 Hari / Daftar": one column, three
+              columns, a list are all shapes, and the ~90px the words cost is
+              what lets this row absorb the title row's two controls.
+            */}
             <Segmented
               ariaLabel={t.calendar.title}
               value={view}
               onChange={setView}
               options={[
-                { value: "day", label: t.calendar.viewDay },
-                { value: "three", label: t.calendar.view3Day },
-                { value: "list", label: t.calendar.viewList },
+                {
+                  value: "day",
+                  label: t.calendar.viewDay,
+                  icon: <Square className="size-4" />,
+                },
+                {
+                  value: "three",
+                  label: t.calendar.view3Day,
+                  icon: <Columns3 className="size-4" />,
+                },
+                {
+                  value: "list",
+                  label: t.calendar.viewList,
+                  icon: <List className="size-4" />,
+                },
               ]}
             />
             {view !== "list" ? (
@@ -643,10 +647,10 @@ export function CalendarScreen() {
                 {/*
                   §5.2's two buffer types are only useful if they can be told
                   apart on the timeline, so the key sits with the view it
-                  explains — and only on days that have a buffer to decode.
+                  explains, and only on days that have a buffer to decode.
                 */}
                 {hasBuffers ? (
-                  <span className="ml-auto flex shrink-0 items-center gap-2">
+                  <span className="flex shrink-0 items-center gap-2">
                     <BufferSwatch type="switch" compact />
                     <BufferSwatch type="commute" compact />
                   </span>
@@ -654,7 +658,6 @@ export function CalendarScreen() {
                 <Button
                   size="iconSm"
                   variant="ghost"
-                  className={hasBuffers ? undefined : "ml-auto"}
                   aria-label={
                     fullDay ? t.calendar.compactHours : t.calendar.fullDayHours
                   }
@@ -671,6 +674,20 @@ export function CalendarScreen() {
                 </Button>
               </>
             ) : null}
+
+            {/* Where the title row's actions went. */}
+            <span className="ml-auto flex shrink-0 items-center gap-1">
+              <Button
+                size="iconSm"
+                variant="ghost"
+                aria-label={t.planning.button}
+                title={t.planning.button}
+                onClick={() => setPlanningOpen(true)}
+              >
+                <ClipboardList className="size-4" />
+              </Button>
+              <SyncIndicator />
+            </span>
           </div>
         </div>
       }

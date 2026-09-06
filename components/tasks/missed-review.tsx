@@ -5,6 +5,7 @@ import { CalendarClock, CheckCircle2, Inbox, PieChart, X } from "lucide-react";
 import * as React from "react";
 
 import { ScheduleSheet } from "@/components/calendar/schedule-sheet";
+import { PomodoroCountStepper } from "@/components/tasks/pomodoro-count";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/field";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
@@ -255,7 +256,14 @@ function ReviewBody() {
                     </div>
                   </div>
 
-                  <div className="mt-2.5 grid grid-cols-2 gap-1.5">
+                  {/*
+                    One row of four, not a 2x2 grid of labelled buttons. The
+                    glyphs are already distinct and each keeps its word in
+                    `aria-label` and `title`, which is the idiom the agenda
+                    sheet's footer already uses; the second row of every card
+                    was the words, not the actions.
+                  */}
+                  <div className="mt-2.5 grid grid-cols-4 gap-1.5">
                     <ActionButton
                       icon={<CheckCircle2 className="size-4" />}
                       label={t.missed.actionDone}
@@ -299,31 +307,12 @@ function ReviewBody() {
               </Button>
             }
           >
-            <div className="flex items-center justify-center gap-4 py-6">
-              <Button
-                size="icon"
-                aria-label="-"
-                onClick={() =>
-                  setPomodoroPrompt((p) =>
-                    p ? { ...p, used: Math.max(0, p.used - 1) } : p,
-                  )
-                }
-              >
-                −
-              </Button>
-              <span className="w-14 text-center text-3xl font-semibold tabular-nums">
-                {pomodoroPrompt.used}
-              </span>
-              <Button
-                size="icon"
-                aria-label="+"
-                onClick={() =>
-                  setPomodoroPrompt((p) => (p ? { ...p, used: p.used + 1 } : p))
-                }
-              >
-                +
-              </Button>
-            </div>
+            <PomodoroCountStepper
+              value={pomodoroPrompt.used}
+              onChange={(used) =>
+                setPomodoroPrompt((p) => (p ? { ...p, used } : p))
+              }
+            />
             {pomodoroPrompt.agendas.length > 1 ? (
               <p className="pb-2 text-center text-[12px] text-fg-subtle">
                 {t.missed.bulkSelected(pomodoroPrompt.agendas.length)}
@@ -365,14 +354,15 @@ function ActionButton({
   return (
     <button
       type="button"
+      aria-label={label}
+      title={label}
       onClick={onClick}
       className={cn(
-        "flex min-h-11 items-center justify-center gap-1.5 rounded-lg border border-border bg-surface px-2 text-[13px] font-medium hover:bg-surface-3",
+        "grid min-h-11 place-items-center rounded-lg border border-border bg-surface hover:bg-surface-3",
         tone === "danger" && "text-danger",
       )}
     >
       {icon}
-      {label}
     </button>
   );
 }
