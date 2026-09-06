@@ -2408,6 +2408,37 @@ tolerance the drop path uses, and gated by `wouldCycle` for D-091's reason: an
 offer the write would refuse is worse than no offer. The gap still comes from
 §5.2's composed rule. One rule, two ways to reach it.
 
+### D-138 · The agenda sheet folds too, and `moreDetail` moves to `common` — **Extends D-132**
+
+Not a new rule; the third surface D-132 applies to, flagged during that pass and
+left out of the approved set until it was asked for.
+
+The sheet's body was ten blocks and the last three were the set-once ones: a
+title that already defaults to the todo's, a place, and the two buffer fields
+with their type swatches and the commute auto/manual toggle. Roughly eight
+controls sitting *below* the two the sheet is opened for, Durasi and Jadwal. On
+an 844 px viewport the sheet opened 723 px tall.
+
+Two boundaries worth stating, because both were live choices:
+
+- **The warnings and the chain cards stay outside the fold.** `outside_window`,
+  `gcal_conflict` and the two "mengikuti / segera setelah" cards are alerts, not
+  fields, and an alert that has to be unfolded is not an alert.
+- **`defaultOpen` counts a hand-typed buffer.** D-132's open-if-set rule reads
+  here as "anything the defaults would not have produced": a title override, a
+  place, `commute_auto = 0` (the user typed a buffer, D-114), or a buffer that no
+  longer matches Settings. A located agenda therefore usually opens its fold,
+  which is the right trade rather than a leak — a place implies a computed
+  journey (D-108), and a journey is exactly the thing worth seeing.
+
+`moreDetail` moved from `tasks` to `common` with this. Three unrelated surfaces
+now share the label, which puts it in the same family as `save`, `cancel`,
+`search` and `today` rather than duplicated into a second namespace.
+
+Measured at 390×844, same build, same data: the sheet 723 → 444 px, its body
+581 → 303 px closed and 637 px opened. Verified in both themes, and verified that
+setting a title override and reopening finds the fold already open.
+
 ### Verification
 
 `npm run lint`, `npm run typecheck` and `npm run build` are clean; the Vitest
@@ -2424,6 +2455,7 @@ table are in `anti-slop/audit-001-2026-09-06.md`; the headline numbers:
 | Tugas: content area | 618 px | 658 px (13.7 → 14.6 rows) |
 | Kalender: timeline in view | 616 px | 658 px (+28 minutes at 1.5 px/min) |
 | Pengaturan: scroll height | 3841 px | 1588 px |
+| Agenda sheet on open | 723 px | 444 px |
 | delete an agenda or a category | 2 taps | 1, undoable |
 | find a task in a long list | scroll or re-group | 1 tap, then type |
 

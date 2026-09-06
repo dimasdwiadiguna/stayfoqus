@@ -10,6 +10,7 @@ import { DurationPicker } from "@/components/calendar/duration-picker";
 import { PomodoroDots } from "@/components/calendar/pomodoro-dots";
 import { PlaceField } from "@/components/places/place-field";
 import { Button } from "@/components/ui/button";
+import { Disclosure } from "@/components/ui/disclosure";
 import { Field, Input } from "@/components/ui/field";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { useCommuteAssignments } from "@/hooks/use-commute";
@@ -155,6 +156,24 @@ function AgendaSheetContent({
   const pinned = agenda.follows_agenda_id !== null;
   const assignments = useCommuteAssignments(date);
 
+  /*
+   * D-132's open-if-set rule: a fold must never hide state the user set and can
+   * no longer see. "Set" here means anything the defaults would not have
+   * produced — a title of its own, a place, a hand-typed buffer (commute_auto
+   * 0, D-114), or a buffer that no longer matches Settings.
+   *
+   * A located agenda therefore usually opens its fold, which is the right
+   * trade: a place implies a computed journey, and a journey is worth seeing.
+   */
+  const carriesDetail =
+    agenda.title_override !== null ||
+    agenda.place_id !== null ||
+    agenda.commute_auto === 0 ||
+    agenda.buffer_before_min !== settings.default_buffer_before_min ||
+    agenda.buffer_after_min !== settings.default_buffer_after_min ||
+    agenda.buffer_before_type !== settings.default_buffer_type ||
+    agenda.buffer_after_type !== settings.default_buffer_type;
+
   /** Sets the length from the duration presets, deriving the pomodoro count. */
   const setDuration = (minutes: number, pomodoros: number) => {
     const start = new Date(agenda.start_at).getTime();
@@ -293,55 +312,69 @@ function AgendaSheetContent({
           </Button>
         </Field>
 
-        <Field label={t.agenda.fieldTitleOverride}>
-          <Input
-            defaultValue={agenda.title_override ?? ""}
-            placeholder={todo?.title ?? ""}
-            onBlur={(e) =>
-              void updateAgenda(agenda.id, {
-                title_override: e.target.value.trim() || null,
-              })
-            }
-          />
-        </Field>
+        {/*
+          The set-once three, folded (D-132's rule, third surface): a title that
+          defaults to the todo's, a place, and the two buffers with their type
+          swatches and the commute toggle. Eight controls sitting under the two
+          the sheet is actually opened for, Durasi and Jadwal.
 
-        <PlaceField
-          value={agenda.place_id}
-          onChange={(place_id) => void updateAgenda(agenda.id, { place_id })}
-        />
+          The warnings and the chain cards above stay put — they are alerts, not
+          fields, and an alert that has to be unfolded is not an alert.
+        */}
+        <Disclosure
+          label={t.common.moreDetail}
+          contentClassName="space-y-5 pt-3"
+          defaultOpen={carriesDetail}
+        >
+          <Field label={t.agenda.fieldTitleOverride}>
+            <Input
+              defaultValue={agenda.title_override ?? ""}
+              placeholder={todo?.title ?? ""}
+              onBlur={(e) =>
+                void updateAgenda(agenda.id, {
+                  title_override: e.target.value.trim() || null,
+                })
+              }
+            />
+          </Field>
 
-        <div className="grid grid-cols-2 gap-3">
-          <CommuteField
-            label={t.agenda.fieldBufferBefore}
-            minutes={agenda.buffer_before_min}
-            type={agenda.buffer_before_type}
-            placeId={agenda.place_id}
-            auto={agenda.commute_auto}
-            assignment={assignments.get(agenda.id)}
-            onMinutes={(buffer_before_min) =>
-              void updateAgenda(agenda.id, { buffer_before_min })
-            }
-            onType={(buffer_before_type) =>
-              void updateAgenda(agenda.id, { buffer_before_type })
-            }
-            onAutoChange={(commute_auto) =>
-              void updateAgenda(agenda.id, { commute_auto })
-            }
+          <PlaceField
+            value={agenda.place_id}
+            onChange={(place_id) => void updateAgenda(agenda.id, { place_id })}
           />
-          <BufferField
-            label={t.agenda.fieldBufferAfter}
-            minutes={agenda.buffer_after_min}
-            type={agenda.buffer_after_type}
-            onMinutes={(buffer_after_min) =>
-              void updateAgenda(agenda.id, { buffer_after_min })
-            }
-            onType={(buffer_after_type) =>
-              void updateAgenda(agenda.id, { buffer_after_type })
-            }
-          />
-        </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <CommuteField
+              label={t.agenda.fieldBufferBefore}
+              minutes={agenda.buffer_before_min}
+              type={agenda.buffer_before_type}
+              placeId={agenda.place_id}
+              auto={agenda.commute_auto}
+              assignment={assignments.get(agenda.id)}
+              onMinutes={(buffer_before_min) =>
+                void updateAgenda(agenda.id, { buffer_before_min })
+              }
+              onType={(buffer_before_type) =>
+                void updateAgenda(agenda.id, { buffer_before_type })
+              }
+              onAutoChange={(commute_auto) =>
+                void updateAgenda(agenda.id, { commute_auto })
+              }
+            />
+            <BufferField
+              label={t.agenda.fieldBufferAfter}
+              minutes={agenda.buffer_after_min}
+              type={agenda.buffer_after_type}
+              onMinutes={(buffer_after_min) =>
+                void updateAgenda(agenda.id, { buffer_after_min })
+              }
+              onType={(buffer_after_type) =>
+                void updateAgenda(agenda.id, { buffer_after_type })
+              }
+            />
+          </div>
+        </Disclosure>
       </div>
-
     </SheetContent>
   );
 }

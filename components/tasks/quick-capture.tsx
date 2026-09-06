@@ -189,7 +189,7 @@ export function QuickCapture({
             hides one.
           */}
           <Disclosure
-            label={t.tasks.moreDetail}
+            label={t.common.moreDetail}
             defaultOpen={Boolean(categoryId) || Boolean(due)}
             contentClassName="grid grid-cols-2 gap-2 pt-1"
           >

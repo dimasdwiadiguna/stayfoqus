@@ -295,7 +295,7 @@ function DetailBody({
         screen, which is what the sheet is opened for.
       */}
       <Disclosure
-        label={t.tasks.moreDetail}
+        label={t.common.moreDetail}
         contentClassName="space-y-5 pt-3"
         defaultOpen={
           // Already carrying something rare: open, or the sheet would hide
