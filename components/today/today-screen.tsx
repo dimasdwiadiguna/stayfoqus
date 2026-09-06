@@ -1,6 +1,6 @@
 "use client";
 
-import { CalendarClock, Play, Sparkles } from "lucide-react";
+import { CalendarClock, CalendarRange, Play } from "lucide-react";
 import { useRouter } from "next/navigation";
 import * as React from "react";
 
@@ -177,32 +177,30 @@ export function TodayScreen() {
 
   return (
     <Screen
+      // One row: the heading is screen-reader only, and the meter has width to
+      // spare beside the two controls the title row used to carry.
       header={
-        <div className="space-y-1.5">
-          <ScreenTitle
-            title={t.today.title}
-            actions={
-              <>
-                <Button
-                  size="iconSm"
-                  variant="ghost"
-                  className="tap-44"
-                  aria-label={t.planning.button}
-                  title={t.planning.button}
-                  onClick={() => setPlanningOpen(true)}
-                >
-                  <CalendarClock className="size-4" />
-                </Button>
-                <SyncIndicator />
-              </>
-            }
-          />
-          <CapacityMeter
-            used={capacity.used}
-            wanted={capacity.wanted}
-            total={capacity.total}
-            over={over}
-          />
+        <div className="flex items-center gap-2">
+          <ScreenTitle title={t.today.title} />
+          <div className="min-w-0 flex-1">
+            <CapacityMeter
+              used={capacity.used}
+              wanted={capacity.wanted}
+              total={capacity.total}
+              over={over}
+            />
+          </div>
+          <Button
+            size="iconSm"
+            variant="ghost"
+            className="tap-44"
+            aria-label={t.planning.button}
+            title={t.planning.button}
+            onClick={() => setPlanningOpen(true)}
+          >
+            <CalendarClock className="size-4" />
+          </Button>
+          <SyncIndicator />
         </div>
       }
     >
@@ -280,14 +278,14 @@ export function TodayScreen() {
         row of screen spent on a disabled control.
       */}
       {selected.size > 0 ? (
-        <div className="fixed inset-x-0 bottom-[calc(3.25rem+env(safe-area-inset-bottom,0px))] z-30 mx-auto max-w-md px-4 pb-2">
+        <div className="fixed inset-x-0 above-tabs z-30 mx-auto max-w-md px-4 pb-2">
           <Button
             variant="primary"
             block
             disabled={running}
             onClick={() => void runAllocation()}
           >
-            <Sparkles className="size-4" />
+            <CalendarRange className="size-4" />
             {running
               ? t.today.allocating
               : t.today.allocateSelected(selected.size)}

@@ -13,7 +13,7 @@ import {
   SortableContext,
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
-import { Eye, EyeOff } from "lucide-react";
+import { Eye, EyeOff, Search, X } from "lucide-react";
 import { AnimatePresence } from "motion/react";
 import * as React from "react";
 
@@ -33,7 +33,7 @@ import { TaskDetailSheet } from "@/components/tasks/task-detail-sheet";
 import { TaskRow } from "@/components/tasks/task-row";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/dialog";
-import { Chip, Segmented } from "@/components/ui/field";
+import { Chip, Input, Segmented } from "@/components/ui/field";
 import { toast } from "@/components/ui/toast";
 import { useTaskData } from "@/hooks/use-tasks";
 import { useSettings } from "@/hooks/use-settings";
@@ -83,6 +83,8 @@ export function TasksScreen({
   const [openTodoId, setOpenTodoId] = React.useState<UUID | null>(null);
   const [dialog, setDialog] = React.useState<PendingDialog>(null);
   const [reviewOpen, setReviewOpen] = React.useState(false);
+  const [searchOpen, setSearchOpen] = React.useState(false);
+  const searchRef = React.useRef<HTMLInputElement>(null);
   const [completing, setCompleting] = React.useState<CompletionRequest | null>(
     null,
   );
@@ -249,8 +251,17 @@ export function TasksScreen({
     <Screen
       header={
         <div className="space-y-1.5">
-          <ScreenTitle title={t.tasks.title} actions={<SyncIndicator />} />
-          <TodayHeader />
+          {/*
+            The heading is screen-reader only and the sync chip rides the
+            progress row, so what used to be two rows is one.
+          */}
+          <div className="flex items-center gap-2">
+            <ScreenTitle title={t.tasks.title} />
+            <div className="min-w-0 flex-1">
+              <TodayHeader />
+            </div>
+            <SyncIndicator />
+          </div>
           <div className="flex items-center gap-2">
             <Segmented
               className="min-w-0"
@@ -264,14 +275,37 @@ export function TasksScreen({
               ]}
             />
             {/*
-              A word that never changes, on a row that has none to spare: the
-              eye says the same thing in an icon's width, and the sentence
-              survives in the label.
+              Two words that never change, on a row that has none to spare: the
+              glyphs say the same thing in an icon's width each, and both
+              sentences survive in the labels.
             */}
             <Button
               size="iconSm"
               variant="ghost"
               className="tap-44 ml-auto"
+              aria-pressed={searchOpen}
+              aria-label={searchOpen ? t.tasks.searchClose : t.tasks.searchOpen}
+              title={searchOpen ? t.tasks.searchClose : t.tasks.searchOpen}
+              onClick={() => {
+                setSearchOpen((open) => {
+                  // Closing clears the query, or the list would stay filtered
+                  // by a field the user can no longer see.
+                  if (open) setFilter((f) => ({ ...f, query: "" }));
+                  else requestAnimationFrame(() => searchRef.current?.focus());
+                  return !open;
+                });
+              }}
+            >
+              {searchOpen ? (
+                <X className="size-4 text-accent" />
+              ) : (
+                <Search className="size-4" />
+              )}
+            </Button>
+            <Button
+              size="iconSm"
+              variant="ghost"
+              className="tap-44"
               aria-pressed={filter.showDone}
               aria-label={t.tasks.showDone}
               title={t.tasks.showDone}
@@ -286,6 +320,32 @@ export function TasksScreen({
               )}
             </Button>
           </div>
+
+          {/*
+            `TaskFilter.query` has always searched title, notes and tags
+            (lib/todos/grouping.ts); it simply had nothing to set it. The row
+            exists only while it is being used, so the default header is the
+            height it was.
+          */}
+          {searchOpen ? (
+            <Input
+              ref={searchRef}
+              type="search"
+              value={filter.query}
+              onChange={(e) =>
+                setFilter((f) => ({ ...f, query: e.target.value }))
+              }
+              onKeyDown={(e) => {
+                if (e.key !== "Escape") return;
+                setFilter((f) => ({ ...f, query: "" }));
+                setSearchOpen(false);
+              }}
+              placeholder={t.tasks.searchPlaceholder}
+              aria-label={t.tasks.searchOpen}
+              enterKeyHint="search"
+              className="h-9"
+            />
+          ) : null}
           {tags.length > 0 ? (
             <div className="no-scrollbar -mx-4 flex gap-1 overflow-x-auto px-4">
               {tags.map((tag) => (

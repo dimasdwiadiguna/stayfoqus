@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowLeft, ArrowRight, Plus, Sparkles, Star } from "lucide-react";
+import { ArrowLeft, ArrowRight, CalendarRange, Plus, Star } from "lucide-react";
 import { useRouter } from "next/navigation";
 import * as React from "react";
 
@@ -187,7 +187,7 @@ function WizardBody({ onClose }: { onClose: () => void }) {
                 disabled={running}
                 onClick={() => void allocateSelection()}
               >
-                <Sparkles className="size-4" />
+                <CalendarRange className="size-4" />
                 {running ? t.planning.allocating : t.planning.allocate}
               </Button>
             )}

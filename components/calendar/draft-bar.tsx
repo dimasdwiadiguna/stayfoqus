@@ -32,7 +32,7 @@ export function DraftBar() {
   const ids = live.map((a) => a.id);
 
   return (
-    <div className="safe-bottom fixed inset-x-0 bottom-[calc(3.25rem+env(safe-area-inset-bottom,0px))] z-30 mx-auto max-w-md border-t border-accent/40 bg-surface/95 px-4 py-2.5 backdrop-blur">
+    <div className="safe-bottom fixed inset-x-0 above-tabs z-30 mx-auto max-w-md border-t border-accent/40 bg-surface/95 px-4 py-2.5 backdrop-blur">
       <div className="flex items-center gap-2">
         <Button
           variant="ghost"

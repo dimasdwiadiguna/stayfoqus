@@ -1,10 +1,11 @@
 "use client";
 
-import { Plus } from "lucide-react";
+import { Minus, Plus, Timer } from "lucide-react";
 import * as React from "react";
 
 import { Button } from "@/components/ui/button";
 import { Chip, Input, Select } from "@/components/ui/field";
+import { Disclosure } from "@/components/ui/disclosure";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import type { Category, Priority, UUID } from "@/lib/db/schema";
 import { id as t } from "@/lib/i18n/id";
@@ -84,7 +85,7 @@ export function QuickCapture({
           type="button"
           onClick={() => setOpen(true)}
           aria-label={t.tasks.quickCapture}
-          className="fixed bottom-[calc(4.25rem+env(safe-area-inset-bottom,0px))] right-4 z-30 grid size-14 place-items-center rounded-full bg-accent text-accent-fg shadow-lg shadow-black/30 active:scale-95"
+          className="fixed above-tabs-gap right-4 z-30 grid size-14 place-items-center rounded-full bg-accent text-accent-fg shadow-lg shadow-black/30 active:scale-95"
         >
           <Plus className="size-6" />
         </button>
@@ -143,13 +144,30 @@ export function QuickCapture({
 
             <span aria-hidden className="h-5 w-px shrink-0 bg-border" />
 
+            {/*
+              Up on the chip, down on the arrow that appears once there is
+              somewhere to go. Cycling was the whole control before, so
+              overshooting "4" meant four more taps back round through 8.
+            */}
+            {estimate > 1 ? (
+              <Chip
+                size="sm"
+                aria-label={t.common.decrease}
+                title={t.common.decrease}
+                onClick={() => setEstimate((n) => Math.max(1, n - 1))}
+              >
+                <Minus className="size-3" aria-hidden />
+              </Chip>
+            ) : null}
             <Chip
               size="sm"
               active={estimate > 1}
               onClick={() => setEstimate((n) => (n >= 8 ? 1 : n + 1))}
               aria-label={t.tasks.fieldEstimate}
+              title={t.tasks.fieldEstimate}
             >
-              {estimate} 🍅
+              <Timer className="size-3" aria-hidden />
+              {estimate}
             </Chip>
 
             <Chip
@@ -163,7 +181,18 @@ export function QuickCapture({
             </Chip>
           </div>
 
-          <div className="grid grid-cols-2 gap-2">
+          {/*
+            Folded, because this row sat between the title field and the
+            keyboard: a category most captures leave alone, and a date picker
+            that duplicates the "Hari ini" chip three chips above it. It opens
+            on its own when a value is already set, so a reopened draft never
+            hides one.
+          */}
+          <Disclosure
+            label={t.tasks.moreDetail}
+            defaultOpen={Boolean(categoryId) || Boolean(due)}
+            contentClassName="grid grid-cols-2 gap-2 pt-1"
+          >
             <Select
               ariaLabel={t.tasks.fieldCategory}
               value={categoryId || "none"}
@@ -179,7 +208,7 @@ export function QuickCapture({
               onChange={(e) => setDue(e.target.value)}
               aria-label={t.tasks.fieldDueDate}
             />
-          </div>
+          </Disclosure>
         </div>
       </SheetContent>
     </Sheet>

@@ -11,7 +11,6 @@ import { LocationSection } from "@/components/settings/location-section";
 import { Row, Section, Stepper } from "@/components/settings/section";
 import { TimeBlockEditor } from "@/components/settings/time-block-editor";
 import { Screen, ScreenTitle } from "@/components/shell/screen";
-import { SyncIndicator } from "@/components/shell/sync-indicator";
 import { Button } from "@/components/ui/button";
 import { Input, Segmented, Select, Slider, Switch } from "@/components/ui/field";
 import { toast } from "@/components/ui/toast";
@@ -49,13 +48,17 @@ const METHODS: { value: PrayerCalculationMethod; label: string }[] = [
 export function SettingsScreen() {
   const settings = useSettings();
 
+  /*
+   * No header row. It held one control, a sync chip whose link went to
+   * `/settings` — the screen it was already on — and every fact it summarised
+   * (pending count, last pull, errors, blocked entries) is stated in full by
+   * the Sinkronisasi section below. That bought the longest screen in the app
+   * a whole sticky row back. The heading stays for the document.
+   */
   return (
-    <Screen
-      header={
-        <ScreenTitle title={t.settings.title} actions={<SyncIndicator />} />
-      }
-    >
+    <Screen>
       <div className="pb-24">
+        <ScreenTitle title={t.settings.title} />
         <AccountSection />
         <AvailabilityEditor />
         <LocationSection />
@@ -97,7 +100,7 @@ export function SettingsScreen() {
 function BufferSection() {
   const settings = useSettings();
   return (
-    <Section title={t.settings.sectionBuffer}>
+    <Section title={t.settings.sectionBuffer} collapsible storageKey="buffer">
       <Row
         label={t.settings.bufferBefore}
         control={
@@ -175,7 +178,12 @@ function PrayerSection() {
   }, [today, settings.latitude, settings.longitude, settings.prayer_calculation_method]);
 
   return (
-    <Section title={t.settings.sectionPrayer} blurb={t.settings.prayerBlurb}>
+    <Section
+      title={t.settings.sectionPrayer}
+      blurb={t.settings.prayerBlurb}
+      collapsible
+      storageKey="prayer"
+    >
       <div className="grid grid-cols-2 gap-2">
         <label className="space-y-1">
           <span className="text-[12px] text-fg-muted">{t.settings.prayerLatitude}</span>
@@ -430,11 +438,19 @@ function AudioStatusRow() {
               state === "running" ? "text-success" : "text-warning",
             )}
           >
-            {state === "running" ? t.settings.audioRunning : "—"}
+            {state === "running"
+              ? t.settings.audioRunning
+              : t.settings.audioInactive}
           </span>
         }
       />
-      <p className="text-[12px] text-fg-subtle">{label}</p>
+      {/*
+        Only when it says something the verdict above did not: running, the
+        sentence and the word are the same word.
+      */}
+      {state === "running" ? null : (
+        <p className="text-[12px] text-fg-subtle">{label}</p>
+      )}
       <p className="text-[12px] text-fg-subtle">{t.settings.audioIosHint}</p>
     </div>
   );
@@ -517,7 +533,7 @@ function SyncSection() {
     .pop();
 
   return (
-    <Section title={t.settings.sectionSync}>
+    <Section title={t.settings.sectionSync} collapsible storageKey="sync">
       {status.phase === "local-only" ? (
         <p className="text-[13px] text-fg-muted">{t.sync.localOnly}</p>
       ) : null}

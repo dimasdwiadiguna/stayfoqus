@@ -35,7 +35,12 @@ export function LocationSection() {
   );
 
   return (
-    <Section title={t.settings.locationTitle} blurb={t.settings.locationBlurb}>
+    <Section
+      title={t.settings.locationTitle}
+      blurb={t.settings.locationBlurb}
+      collapsible
+      storageKey="location"
+    >
       <Row
         label={t.settings.homePlace}
         hint={t.settings.homePlaceHint}

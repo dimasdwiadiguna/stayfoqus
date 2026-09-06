@@ -5,11 +5,11 @@ import * as React from "react";
 
 import { Section } from "@/components/settings/section";
 import { Button } from "@/components/ui/button";
-import { ConfirmDialog } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/field";
 import { useCategories } from "@/hooks/use-tasks";
-import { createRow, softDeleteRow, updateRow } from "@/lib/db/mutations";
-import type { Category, UUID } from "@/lib/db/schema";
+import { toast } from "@/components/ui/toast";
+import { createRow, restoreRow, softDeleteRow, updateRow } from "@/lib/db/mutations";
+import type { UUID } from "@/lib/db/schema";
 import { id as t } from "@/lib/i18n/id";
 
 const PALETTE = [
@@ -22,10 +22,16 @@ const PALETTE = [
   "#9aa2ae",
 ];
 
-/** §4.1 / §7.5 — categories are user-defined and all four seeds are deletable. */
+/**
+ * §4.1 / §7.5 — categories are user-defined and all four seeds are deletable.
+ *
+ * Deleting one used to open a confirmation and offer nothing afterwards. It is
+ * the other way round now: the delete happens, and the toast carries both the
+ * consequence ("tugas yang memakainya jadi tanpa kategori") and the inverse.
+ * The delete is soft, so the inverse is exact.
+ */
 export function CategoryEditor() {
   const categories = useCategories();
-  const [pendingDelete, setPendingDelete] = React.useState<Category | null>(null);
 
   return (
     <Section title={t.settings.sectionCategories}>
@@ -51,7 +57,7 @@ export function CategoryEditor() {
               size="iconSm"
               variant="ghost"
               aria-label={`${t.common.delete} ${category.name}`}
-              onClick={() => setPendingDelete(category)}
+              onClick={() => void deleteCategory(category.id)}
             >
               <Trash2 className="size-4" />
             </Button>
@@ -74,16 +80,6 @@ export function CategoryEditor() {
         {t.settings.addCategory}
       </Button>
 
-      <ConfirmDialog
-        open={pendingDelete !== null}
-        onOpenChange={(open) => !open && setPendingDelete(null)}
-        title={t.settings.deleteCategoryConfirm}
-        confirmLabel={t.common.delete}
-        tone="danger"
-        onConfirm={() => {
-          if (pendingDelete) void deleteCategory(pendingDelete.id);
-        }}
-      />
     </Section>
   );
 }
@@ -96,6 +92,9 @@ export function CategoryEditor() {
  */
 async function deleteCategory(categoryId: UUID): Promise<void> {
   await softDeleteRow("categories", categoryId);
+  toast.undoable(t.settings.deleteCategoryConfirm, () => {
+    void restoreRow("categories", categoryId);
+  });
 }
 
 function ColorPicker({

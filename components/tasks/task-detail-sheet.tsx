@@ -1,6 +1,6 @@
 "use client";
 
-import { Plus, X } from "lucide-react";
+import { CalendarPlus, Plus, X } from "lucide-react";
 import * as React from "react";
 
 import { PlaceField } from "@/components/places/place-field";
@@ -13,6 +13,7 @@ import {
   Select,
   Textarea,
 } from "@/components/ui/field";
+import { Disclosure } from "@/components/ui/disclosure";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { toast } from "@/components/ui/toast";
 import { useAgendasForTodo } from "@/hooks/use-tasks";
@@ -121,13 +122,6 @@ function DetailBody({
         />
       </Field>
 
-      <Field label={t.tasks.fieldNotes}>
-        <Textarea
-          defaultValue={todo.notes ?? ""}
-          onBlur={(e) => patch({ notes: e.target.value.trim() || null })}
-        />
-      </Field>
-
       <div className="grid grid-cols-2 gap-3">
         <Field label={t.tasks.fieldCategory}>
           <Select
@@ -149,37 +143,27 @@ function DetailBody({
         </Field>
       </div>
 
+      {/*
+        `P1` rather than `P1 · Mendesak`: the same four chips in quick capture
+        already print the short form, and the long one forced four wide chips
+        across a narrow sheet. The word survives in the label, where the other
+        icon-for-word trades in this app put it.
+      */}
       <Field label={t.tasks.fieldPriority}>
         <div className="flex gap-1.5">
           {PRIORITIES.map((p) => (
             <Chip
               key={p}
               active={todo.priority === p}
+              aria-label={t.priority[`p${p}` as const]}
+              title={t.priority[`p${p}` as const]}
               onClick={() => patch({ priority: p })}
             >
-              {t.priority.short(p)} · {t.priority[`p${p}` as const]}
+              {t.priority.short(p)}
             </Chip>
           ))}
         </div>
       </Field>
-
-      <Field label={t.tasks.fieldTags} hint={t.tasks.tagsPlaceholder}>
-        <Input
-          value={tagDraft}
-          onChange={(e) => setTagDraft(e.target.value)}
-          onBlur={commitTags}
-          onKeyDown={(e) => e.key === "Enter" && commitTags()}
-          placeholder={t.tasks.tagsPlaceholder}
-        />
-      </Field>
-
-      {/* A default, copied onto each agenda as this todo is scheduled — set it
-          once for "Gym" and every gym session gets its journey reserved. */}
-      <PlaceField
-        value={todo.place_id}
-        onChange={(place_id) => patch({ place_id })}
-        hint={t.tasks.placeHint}
-      />
 
       <Field label={t.tasks.fieldEstimate}>
         <div className="flex items-center gap-2">
@@ -204,6 +188,39 @@ function DetailBody({
           </Button>
         </div>
       </Field>
+
+      {/* ----- agendas ----- */}
+      <section className="space-y-2">
+        <div className="flex items-center justify-between">
+          <h3 className="text-[13px] font-medium text-fg-muted">
+            {t.tasks.agendasOfTodo}
+          </h3>
+          <Button size="sm" onClick={() => onSchedule(todo)}>
+            <CalendarPlus className="size-4" />
+            {t.tasks.schedule}
+          </Button>
+        </div>
+        {agendas.length === 0 ? (
+          <p className="text-[13px] text-fg-subtle">{t.tasks.noAgendas}</p>
+        ) : (
+          <ul className="space-y-1">
+            {agendas.map((agenda) => (
+              <li
+                key={agenda.id}
+                className="flex items-center justify-between gap-2 rounded-lg border border-border bg-surface-2 px-3 py-2 text-[13px]"
+              >
+                <span className="min-w-0 truncate">
+                  {formatDateWithWeekday(localDate(agenda.start_at, timezone))} ·{" "}
+                  {formatTimeRange(agenda.start_at, agenda.end_at, timezone)}
+                </span>
+                <span className="shrink-0 text-fg-subtle">
+                  {t.agenda.status[agenda.status]}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
 
       {/* ----- subtasks ----- */}
       <section className="space-y-2">
@@ -271,62 +288,74 @@ function DetailBody({
         </div>
       </section>
 
-      {/* ----- dependencies ----- */}
-      <section className="space-y-2">
-        <h3 className="text-[13px] font-medium text-fg-muted">
-          {t.tasks.fieldDependencies}
-        </h3>
-        {todo.blocked_by.length > 0 ? (
-          <div className="flex flex-wrap gap-1.5">
-            {todo.blocked_by.map((depId) => {
-              const dep = todos.find((c) => c.id === depId);
-              return (
-                <Chip key={depId} active onClick={() => void toggleDependency(depId)}>
-                  {dep?.title ?? depId.slice(0, 6)}
-                  <X className="size-3" />
-                </Chip>
-              );
-            })}
-          </div>
-        ) : null}
-        <DependencyPicker
-          candidates={dependencyCandidates}
-          selected={todo.blocked_by}
-          onToggle={(depId) => void toggleDependency(depId)}
-        />
-      </section>
+      {/*
+        The four that are set once and then scrolled past: notes, tags, a
+        default place, and cross-task dependencies. Folding them puts the
+        title, the priority, the dates, the estimate and the agendas on one
+        screen, which is what the sheet is opened for.
+      */}
+      <Disclosure
+        label={t.tasks.moreDetail}
+        contentClassName="space-y-5 pt-3"
+        defaultOpen={
+          // Already carrying something rare: open, or the sheet would hide
+          // state the user set and cannot see.
+          Boolean(todo.notes) ||
+          todo.tags.length > 0 ||
+          Boolean(todo.place_id) ||
+          todo.blocked_by.length > 0
+        }
+      >
+        <Field label={t.tasks.fieldNotes}>
+          <Textarea
+            defaultValue={todo.notes ?? ""}
+            onBlur={(e) => patch({ notes: e.target.value.trim() || null })}
+          />
+        </Field>
 
-      {/* ----- agendas ----- */}
-      <section className="space-y-2">
-        <div className="flex items-center justify-between">
+        <Field label={t.tasks.fieldTags} hint={t.tasks.tagsPlaceholder}>
+          <Input
+            value={tagDraft}
+            onChange={(e) => setTagDraft(e.target.value)}
+            onBlur={commitTags}
+            onKeyDown={(e) => e.key === "Enter" && commitTags()}
+            placeholder={t.tasks.tagsPlaceholder}
+          />
+        </Field>
+
+        {/* A default, copied onto each agenda as this todo is scheduled: set it
+            once for "Gym" and every gym session gets its journey reserved. */}
+        <PlaceField
+          value={todo.place_id}
+          onChange={(place_id) => patch({ place_id })}
+          hint={t.tasks.placeHint}
+        />
+
+        {/* ----- dependencies ----- */}
+        <section className="space-y-2">
           <h3 className="text-[13px] font-medium text-fg-muted">
-            {t.tasks.agendasOfTodo}
+            {t.tasks.fieldDependencies}
           </h3>
-          <Button size="sm" onClick={() => onSchedule(todo)}>
-            {t.tasks.schedule}
-          </Button>
-        </div>
-        {agendas.length === 0 ? (
-          <p className="text-[13px] text-fg-subtle">{t.tasks.noAgendas}</p>
-        ) : (
-          <ul className="space-y-1">
-            {agendas.map((agenda) => (
-              <li
-                key={agenda.id}
-                className="flex items-center justify-between gap-2 rounded-lg border border-border bg-surface-2 px-3 py-2 text-[13px]"
-              >
-                <span className="min-w-0 truncate">
-                  {formatDateWithWeekday(localDate(agenda.start_at, timezone))} ·{" "}
-                  {formatTimeRange(agenda.start_at, agenda.end_at, timezone)}
-                </span>
-                <span className="shrink-0 text-fg-subtle">
-                  {t.agenda.status[agenda.status]}
-                </span>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
+          {todo.blocked_by.length > 0 ? (
+            <div className="flex flex-wrap gap-1.5">
+              {todo.blocked_by.map((depId) => {
+                const dep = todos.find((c) => c.id === depId);
+                return (
+                  <Chip key={depId} active onClick={() => void toggleDependency(depId)}>
+                    {dep?.title ?? depId.slice(0, 6)}
+                    <X className="size-3" />
+                  </Chip>
+                );
+              })}
+            </div>
+          ) : null}
+          <DependencyPicker
+            candidates={dependencyCandidates}
+            selected={todo.blocked_by}
+            onToggle={(depId) => void toggleDependency(depId)}
+          />
+        </section>
+      </Disclosure>
     </div>
   );
 }
