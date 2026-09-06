@@ -2199,3 +2199,245 @@ back on Hari Ini the plan read 08:16, 08:51, 09:26 and the meter moved to
 because the buffers are real space, which is the honest answer) → **Mulai fokus**
 opened the running timer. `/week` redirected to `/today`. Both themes checked on
 all four tabs, and the calendar header in day and 3-day view.
+
+---
+
+## Audit terhadap anti-slop, dan UI yang lebih sedikit ketukan
+
+Requested: enhance the UI and UX so it works as a productivity app — fewer taps,
+fewer unnecessary fields, a more compact UI, an icon wherever a word is carrying
+something alone — with `github.com/miqdadbadjuber/anti-slop` as the audit guide.
+
+anti-slop offers two modes and asks which applies. **Mode 2** was chosen: audit
+first as a numbered list, then fix what is picked. The findings live in
+`anti-slop/audit-001-2026-09-06.md` with the rule each one breaks, the priority
+its tier implies, and the measured evidence. What follows is only the entries
+where a *rule* changed rather than a component.
+
+### D-128 · `--fg-subtle` had never passed AA, in either theme — **Bug found by the audit**
+
+The largest thing the audit turned up, and it had been there since D-005.
+`--fg-subtle` paints captions, task metadata, hints, the calendar's day totals
+and every settings sub-label — 81 uses across 31 files — always at 11, 12 or
+13 px, so R-25's 4.5:1 normal-text bar applies and never the 3:1 large-text one.
+
+Measured, not eyeballed. The old values against the four surfaces they can land
+on:
+
+| | `--bg` | `--surface` | `--surface-2` | `--surface-3` |
+|---|---|---|---|---|
+| dark `#6b7480` | 4.11 | 3.79 | 3.45 | 3.04 |
+| light `#858d99` | 3.15 | 3.35 | 3.01 | 2.76 |
+
+Eight failures out of eight. The guide is blunt about why this survives review:
+the eye overestimates contrast on grey pairs, so a grey-on-grey claim is the most
+common accessibility hallucination there is, and the only defence is to compute
+it.
+
+Now `#8a939f` and `#5f6772`, which measure 4.63 and 4.71 on the *worst* surface
+and better on the other three. Light's `--fg-muted` moved to `#4d5560` with it:
+raising subtle without moving muted would have closed the gap between two of the
+three text weights, and three legible steps is what the hierarchy is made of.
+
+**The first attempt at this fix was itself wrong**, and is worth recording. It
+tested `--bg`, `--surface` and `--surface-2`, shipped a value that passed all
+three, and would have left `--surface-3` — the deepest surface, and the one
+inside every raised card — failing at 4.18. A token is only fixed against every
+surface it can land on, not the ones that came to mind.
+
+### D-129 · A screen heading that repeats its own tab is a row of chrome — **Interpreted**
+
+§7 gives four tabs and names them Tugas, Kalender, Pekan Ini and Pengaturan.
+Every screen also rendered an `h1` with that same word, directly above a tab bar
+already showing it highlighted. On a 390×844 phone that is a row spent telling
+the user where they already know they are.
+
+`ScreenTitle` now renders the heading `sr-only` and returns its actions as a
+compact group the caller drops onto its own first row of controls. The heading
+survives — a screen reader has no tab bar to look at, and the document still
+needs one — and only the pixels go.
+
+Where the actions landed differs per screen, and each was a placement rather than
+a sweep: Tugas puts the sync chip on the progress row, Hari Ini puts the planning
+button and the sync chip beside the capacity meter, Kalender moves both onto the
+view row (which F-16's icon switch had just widened by ~90 px). **Pengaturan lost
+its header entirely**: it held one control, a sync chip whose link went to
+`/settings`, the screen it was already on, and every fact it summarised is stated
+in full by the Sinkronisasi section below it.
+
+Measured, against the same build with the same data: Tugas 141 → 101, Kalender
+143 → 101, Hari Ini 86 → 60, Pengaturan 53 → 0. The before column reproduces
+D-127's own figures exactly, which is what makes the comparison worth quoting.
+
+### D-130 · A confirmation in front of a reversible action is a tap, not a safety net — **Interpreted**
+
+Three delete paths looked like one finding and turned out to be three, which is
+why they are recorded separately rather than swept.
+
+- **An agenda** opened a `ConfirmDialog` *and* then offered an undo toast. §4.3
+  requires the copy to say the todo survives, and `t.agenda.deleted` is
+  `t.agenda.deleteConfirmBody` word for word — the requirement was already met by
+  the toast. The dialog asked the user to decide twice about something the next
+  tap could undo. Gone.
+- **An event** kept its dialog. Its body says something the toast does not: that
+  deleting a recurring event removes every occurrence. A user looking at one
+  block on one day cannot infer that, so the confirmation is doing real work.
+- **A category** was the opposite of the finding as first written. It had a
+  confirmation and *no* undo, so the dialog was the only thing standing between a
+  tap and a lost category. It now has the better trade: the delete happens, and
+  the toast carries both the consequence and the inverse. The delete was already
+  soft (§3.2), so the inverse is exact.
+
+The general rule, since this is the second time it has come up after D-096: a
+dialog earns its tap by carrying information the action's own feedback cannot. If
+it only repeats what the toast will say, it is a tax on the common case.
+
+### D-131 · The task list's search had been written but never wired — **Bug**
+
+`TaskFilter.query` matches a todo's title, notes and tags in
+`lib/todos/grouping.ts`, is honoured by `visibleRoots`, and was initialised to
+`""` in `tasks-screen.tsx` and never set again. A finished capability with no way
+to reach it, on the one screen where a long list is the expected state, while the
+Hari Ini screen — with a much shorter list — had a search box all along.
+
+A magnifier toggle in the header, in D-121's idiom: the glyph carries the word,
+the word survives in `aria-label` and `title`, and the field appears only while
+it is in use so the default header height is unchanged. Closing it clears the
+query, because a list still filtered by a field the user can no longer see is a
+list that looks broken.
+
+### D-132 · Rare fields fold; they are never deleted — **Requested**
+
+The instruction was to reduce unnecessary fields, and the choice made was to fold
+rather than cut, so nothing loses its home.
+
+`components/ui/disclosure.tsx` is the one primitive, and `Section` grew the same
+behaviour for Settings. Three surfaces adopted it:
+
+- **The task detail sheet** was ten field groups in a flat column with
+  "Jadwalkan" — the most valuable thing in it — below the subtasks and the
+  dependency picker. Notes, tags, the default place and the dependencies fold
+  into one `Detail lainnya`; the agendas block moves directly under the estimate.
+  The fold **opens by itself when it already holds a value**, or the sheet would
+  hide state the user set and cannot see.
+- **Quick capture** had a category select and a date input sitting between the
+  title field and the keyboard, and that date input duplicated the "Hari ini"
+  chip three chips above it. Both fold, on the same open-if-set rule.
+- **Settings** folds the five sections that are answered once — the productive
+  hours, the location, the default buffers, the prayer durations, the time blocks
+  — plus Sinkronisasi, which is diagnostics and only wanted when something is
+  wrong. The order stays the one §7.5 specifies; only what is expanded changes.
+  Scroll height 3841 → 1588 px, and Pomodoro, Kategori and Tampilan are now
+  reachable without a scroll past thirty controls.
+
+The open state persists per section in `localStorage`, seeded during render
+rather than pushed from an effect. That is safe here and only here: `BootGate`
+renders nothing until IndexedDB is ready on the client, so no settings section is
+ever server-rendered and there is no first paint for the value to disagree with
+(D-071's rule, and the one place its exception genuinely holds).
+
+### D-133 · The glyphs the guide names, and the one it was right about — **Interpreted**
+
+R-04 lists the icons that mean "generated" rather than "chosen". Three findings,
+and they did not all deserve the same answer:
+
+- **`Sparkles` on "Alokasikan otomatis"** is the guide's first example, and it
+  was fair. The action means "put these tasks on the calendar", which is a shape;
+  it is `CalendarRange` now, in both call sites.
+- **A literal 🍅** in quick capture's estimate chip was the app's only emoji.
+  Replaced with `Timer`, which already means pomodoro in the calendar header, so
+  the two say it the same way.
+- **Lucide as the whole icon set** is flagged by the guide as a library look
+  chosen by default. Kept, with the reason written down rather than ~57 icons
+  rehomed: the set is a single stroke weight and a single corner radius at every
+  size the app uses, from the 12 px figures in the calendar header to the 24 px
+  FAB, and this UI leans on icon-for-word substitutions (D-121, D-101, and F-16
+  below) often enough that a set which stays legible at 12 px is doing real work.
+  A mixed set would cost that consistency to avoid a resemblance.
+
+Two the guide would flag that were kept deliberately: `Flame` for the streak and
+`Star` for the three most important tasks. Both are conventions the user already
+reads, and neither is decoration — they label a number and a rank.
+
+### D-134 · The countdown pulses for the last five minutes, not all day — **Interpreted, narrows D-107**
+
+D-107 made the ticker's countdown pulse always, on the reasoning that "a
+countdown that sits still is just a number". The strip is mounted for the life of
+the app, so that is a permanent animation on a screen the user is trying to work
+on, which is exactly what R-19 means by motion that runs on a loop rather than
+guiding attention.
+
+The colour escalation was already there (`soon` switches to `text-warning`) and
+the movement now escalates with it. D-107's point survives where it is actually
+true: in the last five minutes, when a number that sits still is a number you
+miss.
+
+### D-135 · One tab-bar offset, because five had drifted into two — **Bug**
+
+Five things float above the tab bar and each re-derived its height by hand:
+`4.25rem + env(safe-area-inset-bottom)` in the FAB, the focus pill and the
+toaster, `3.25rem + …` in the draft bar and the allocate bar. Two numbers for one
+measurement, which is why the FAB and the draft bar could overlap on the calendar
+after an allocation.
+
+`above-tabs` and `above-tabs-gap` in `globals.css`, beside `safe-bottom` and
+`tap-44`: one clears the bar, the other clears it plus a thumb. All five call
+sites use one or the other, and there are no hand-written insets left in
+`components/`.
+
+### D-136 · Two identical steppers, and one label that was punctuation — **Filled a gap**
+
+`CompletionPrompt` (D-084) and the missed-agenda review (§5.8) each asked "how
+many pomodoros?" with their own copy of the same `− N +` control, identical but
+for a font size — two places for the clamp at zero to drift apart.
+`PomodoroCountStepper` is the one of them.
+
+Both copies also labelled their buttons `aria-label="-"` and `"+"`, which a
+screen reader reads as punctuation. They use `t.common.decrease` and
+`t.common.increase`, which already existed and were already used elsewhere.
+
+### D-137 · The "immediately after" link had no path without a pointer — **Bug**
+
+D-087 stored the relationship, D-091 made the drag create it, and between them
+that became the *only* way in: `follows_agenda_id` could not be set without a
+pointer gesture, which is R-32's mouse-only pattern applied to a stored fact.
+
+The agenda sheet now offers it wherever the block already rests against a
+neighbour, using the same `abuttingPredecessor` and the same 6-minute settled
+tolerance the drop path uses, and gated by `wouldCycle` for D-091's reason: an
+offer the write would refuse is worse than no offer. The gap still comes from
+§5.2's composed rule. One rule, two ways to reach it.
+
+### Verification
+
+`npm run lint`, `npm run typecheck` and `npm run build` are clean; the Vitest
+suite is green at **340 tests, unchanged** — not one needed editing, which is the
+evidence that none of this reached a scheduling rule.
+
+Driven in Chromium at 390×844, Asia/Jakarta, in both themes, with the console
+watched throughout (clean) and horizontal overflow measured at 0 on every screen.
+The full click-through, the before/after chrome measurements and the contrast
+table are in `anti-slop/audit-001-2026-09-06.md`; the headline numbers:
+
+| | before | after |
+|---|---|---|
+| Tugas: content area | 618 px | 658 px (13.7 → 14.6 rows) |
+| Kalender: timeline in view | 616 px | 658 px (+28 minutes at 1.5 px/min) |
+| Pengaturan: scroll height | 3841 px | 1588 px |
+| delete an agenda or a category | 2 taps | 1, undoable |
+| find a task in a long list | scroll or re-group | 1 tap, then type |
+
+**Two findings were recorded and deliberately not fixed.** Completing a task
+still costs a modal: making it one tap would reverse part of D-084, which was
+asked for on purpose, so it is written up in the audit as F-20 and left for a
+decision rather than taken. And `--busy` fails 3:1 as a raw colour pair but is
+only ever a 20–25 % alpha band behind the timeline, never text or a boundary, so
+it is recorded as a false positive (F-21) rather than "fixed" into something
+louder than the agendas it sits behind.
+
+**R-37 is reported as a FAIL.** There is no `DESIGN.md`, by choice, so this pass
+is labelled *draft without direction* with the honest default dials
+ENERGY 1 / RHYTHM 1 / MOTION 1. The de-facto system it was actually held to —
+D-005's tokens, D-006's font stack, D-098 and D-120 on compaction, D-121 on
+icons — is real, but it is not written as direction and the gate does not get to
+pretend otherwise.
