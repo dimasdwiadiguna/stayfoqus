@@ -201,7 +201,16 @@ export function Select({
   );
 }
 
-/** Horizontal segmented control used for view switches and grouping toggles. */
+/**
+ * Horizontal segmented control used for view switches and grouping toggles.
+ *
+ * An option may carry an `icon`. When it does the glyph replaces the word and
+ * the word moves to `aria-label` and `title`, so nothing is lost to a screen
+ * reader or to a hovering cursor. That trade is only worth making where the
+ * options are shape-expressible: a day, three days and a list are, whereas
+ * "Kategori / Tenggat / Prioritas" are three abstractions with no honest
+ * glyph between them, so that switch keeps its words.
+ */
 export function Segmented<T extends string>({
   value,
   onChange,
@@ -211,7 +220,7 @@ export function Segmented<T extends string>({
 }: {
   value: T;
   onChange: (value: T) => void;
-  options: ReadonlyArray<{ value: T; label: string }>;
+  options: ReadonlyArray<{ value: T; label: string; icon?: React.ReactNode }>;
   className?: string;
   ariaLabel?: string;
 }) {
@@ -230,15 +239,18 @@ export function Segmented<T extends string>({
           type="button"
           role="radio"
           aria-checked={value === opt.value}
+          aria-label={opt.icon ? opt.label : undefined}
+          title={opt.icon ? opt.label : undefined}
           onClick={() => onChange(opt.value)}
           className={cn(
-            "tap-44 min-h-9 rounded-md px-3 text-[13px] font-medium whitespace-nowrap transition-colors",
+            "tap-44 grid min-h-9 place-items-center rounded-md text-[13px] font-medium whitespace-nowrap transition-colors",
+            opt.icon ? "w-9" : "px-3",
             value === opt.value
               ? "bg-accent text-accent-fg"
               : "text-fg-muted hover:text-fg",
           )}
         >
-          {opt.label}
+          {opt.icon ?? opt.label}
         </button>
       ))}
     </div>

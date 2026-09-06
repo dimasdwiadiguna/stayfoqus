@@ -17,7 +17,17 @@
   --border-strong: #3a414d;
   --fg: #e8eaed;
   --fg-muted: #9aa2ae;
-  --fg-subtle: #6b7480;
+  /*
+   * WCAG AA (R-25) at the sizes this token is actually used at: it paints
+   * captions and metadata at 11-13px, so the 4.5:1 normal-text bar applies,
+   * not the 3:1 large-text one.
+   *
+   * Measured against every surface it can land on, --surface-3 included, since
+   * that is the deepest and therefore the worst case: 6.26 / 5.78 / 5.26 / 4.63
+   * on bg / surface / surface-2 / surface-3. The old #6b7480 measured
+   * 4.11 / 3.79 / 3.45 / 3.04 and failed all four.
+   */
+  --fg-subtle: #8a939f;
 
   --accent: #7c9cff;
   --accent-fg: #0b0d10;
@@ -61,8 +71,17 @@
   --border: #dfe3ea;
   --border-strong: #c3cad6;
   --fg: #161a20;
-  --fg-muted: #5a636f;
-  --fg-subtle: #858d99;
+  /*
+   * Darkened alongside --fg-subtle below: raising subtle to pass AA would
+   * otherwise close the gap between the two, and three legible steps
+   * (fg / muted / subtle) is what the hierarchy is made of. 7.10 on --bg.
+   */
+  --fg-muted: #4d5560;
+  /*
+   * 5.39 / 5.72 / 5.15 / 4.71 on bg / surface / surface-2 / surface-3, so it
+   * holds on the deepest surface too. Was #858d99: 3.15 / 3.35 / 3.01 / 2.76.
+   */
+  --fg-subtle: #5f6772;
 
   --accent: #3b62e0;
   --accent-fg: #ffffff;
@@ -185,6 +204,24 @@
  * much is visible, which is the whole reason the unit exists.
  */
 @custom-variant standalone (@media (display-mode: standalone));
+
+/*
+ * The tab bar's own height, so the five things that float above it stop each
+ * re-deriving it by hand. They had drifted to two different values (4.25rem for
+ * the FAB, the focus pill and the toaster; 3.25rem for the draft bar and the
+ * allocate bar), which is why the FAB and the draft bar could overlap.
+ *
+ * 3.25rem is the bar's `min-h` (tab-bar.tsx); `above-tabs` clears it plus the
+ * home indicator, and `above-tabs-gap` adds a thumb's worth on top for the
+ * things that float clear of the bar rather than sit against it.
+ */
+@utility above-tabs {
+  bottom: calc(3.25rem + env(safe-area-inset-bottom, 0px));
+}
+
+@utility above-tabs-gap {
+  bottom: calc(4.25rem + env(safe-area-inset-bottom, 0px));
+}
 
 @utility no-scrollbar {
   scrollbar-width: none;

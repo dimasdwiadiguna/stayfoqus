@@ -1,30 +1,107 @@
 "use client";
 
+import { ChevronRight } from "lucide-react";
 import * as React from "react";
 
 import { cn } from "@/lib/utils";
 
+/**
+ * A settings section, optionally folded.
+ *
+ * Settings is ten sections in one scroll, and half of them are answered once
+ * and never opened again: the productive hours, the location, the default
+ * buffers, the prayer durations, the time blocks. Left expanded they put
+ * roughly thirty controls above Pomodoro, Kategori and Tampilan, which are the
+ * three that get touched.
+ *
+ * `collapsible` folds a section and remembers the choice per section, so the
+ * order stays the one the brief specifies (§7.5) while the scroll follows what
+ * this user actually opens.
+ */
 export function Section({
   title,
   blurb,
+  collapsible = false,
+  storageKey,
   children,
 }: {
   title: string;
   blurb?: string;
+  collapsible?: boolean;
+  /** Stable id for the remembered open state. Required when collapsible. */
+  storageKey?: string;
   children: React.ReactNode;
 }) {
+  /*
+   * Seeded during render rather than pushed from an effect (D-071). That is
+   * safe here and only here: `BootGate` renders nothing until IndexedDB is
+   * ready on the client, so no settings section is ever server-rendered and
+   * there is no first paint for this value to disagree with.
+   */
+  const [open, setOpen] = React.useState(() => {
+    if (!collapsible || !storageKey) return true;
+    try {
+      return window.localStorage.getItem(sectionKey(storageKey)) === "1";
+    } catch {
+      // A browser with storage disabled simply does not remember.
+      return false;
+    }
+  });
+
+  const toggle = () => {
+    setOpen((wasOpen) => {
+      const next = !wasOpen;
+      if (storageKey) {
+        try {
+          window.localStorage.setItem(sectionKey(storageKey), next ? "1" : "0");
+        } catch {
+          // As above.
+        }
+      }
+      return next;
+    });
+  };
+
   return (
     <section className="border-b border-border px-4 py-3.5 last:border-b-0">
-      <h2 className="text-[11px] font-semibold tracking-wide text-fg-subtle uppercase">
-        {title}
-      </h2>
-      {blurb ? (
-        <p className="mt-1 text-[11px] leading-relaxed text-fg-subtle">{blurb}</p>
+      {collapsible ? (
+        <button
+          type="button"
+          aria-expanded={open}
+          onClick={toggle}
+          className="tap-44 -my-1 flex w-full items-center gap-1 py-1 text-left"
+        >
+          <ChevronRight
+            aria-hidden
+            className={cn(
+              "size-3.5 shrink-0 text-fg-subtle transition-transform",
+              open && "rotate-90",
+            )}
+          />
+          <h2 className="text-[11px] font-semibold tracking-wide text-fg-subtle uppercase">
+            {title}
+          </h2>
+        </button>
+      ) : (
+        <h2 className="text-[11px] font-semibold tracking-wide text-fg-subtle uppercase">
+          {title}
+        </h2>
+      )}
+      {open ? (
+        <>
+          {blurb ? (
+            <p className="mt-1 text-[11px] leading-relaxed text-fg-subtle">
+              {blurb}
+            </p>
+          ) : null}
+          <div className="mt-2 space-y-2">{children}</div>
+        </>
       ) : null}
-      <div className="mt-2 space-y-2">{children}</div>
     </section>
   );
 }
+
+const sectionKey = (id: string) => `foqus.settings.section.${id}`;
 
 export function Row({
   label,
