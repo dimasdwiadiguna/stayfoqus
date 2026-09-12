@@ -16,10 +16,26 @@ export const dynamic = "force-dynamic";
 
 /** Connection state for Settings → Akun & Google Calendar. */
 export async function GET() {
-  const configured = googleClientConfig() !== null;
+  const config = googleClientConfig();
+  const configured = config !== null;
+  /*
+   * The exact `redirect_uri` this deployment will send to Google, built from
+   * NEXT_PUBLIC_SITE_URL. Reported so Pengaturan can show the one string that
+   * has to be registered in Google Cloud — and so the client can notice when it
+   * does not match the origin the app is actually being served from, which is
+   * `Error 400: redirect_uri_mismatch` before it happens. Public by nature: it
+   * travels in the OAuth URL on every connect.
+   */
+  const redirect_uri = config?.redirectUri ?? null;
+
   const userId = await currentUserId();
   if (!userId) {
-    return NextResponse.json({ configured, signed_in: false, connected: false });
+    return NextResponse.json({
+      configured,
+      redirect_uri,
+      signed_in: false,
+      connected: false,
+    });
   }
   try {
     const connected = configured && (await isConnected(userId));
@@ -29,13 +45,19 @@ export async function GET() {
     const missing = connected ? await missingScopes(userId) : [];
     return NextResponse.json({
       configured,
+      redirect_uri,
       signed_in: true,
       connected,
       scopes_ok: missing.length === 0,
       missing_scopes: missing,
     });
   } catch {
-    return NextResponse.json({ configured, signed_in: true, connected: false });
+    return NextResponse.json({
+      configured,
+      redirect_uri,
+      signed_in: true,
+      connected: false,
+    });
   }
 }
 

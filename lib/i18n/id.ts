@@ -509,6 +509,11 @@ export const id = {
       "Google OAuth belum disiapkan di deployment ini (GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET).",
     gcalSyncNow: "Sinkronkan sekarang",
     gcalReconnect: "Hubungkan ulang Google Calendar",
+    gcalRedirectHelpTitle: "Error 400: redirect_uri_mismatch?",
+    gcalRedirectHelpBlurb:
+      "Alamat ini harus terdaftar di Google Cloud → Clients → OAuth client kamu → Authorized redirect URIs. Ini terpisah dari callback Supabase untuk login; client yang sama butuh keduanya.",
+    gcalOriginMismatch: (origin: string) =>
+      `NEXT_PUBLIC_SITE_URL menunjuk ke alamat lain, bukan ${origin}. Google akan menolak dengan redirect_uri_mismatch sampai nilainya diperbaiki di environment deployment.`,
     gcalScopesStale:
       "Izin Google yang tersimpan belum mencakup pembuatan kalender. Hubungkan ulang untuk memberi izin itu.",
 

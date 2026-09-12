@@ -215,12 +215,21 @@ the requirement with the current origin already filled in, under
 **APIs & Services → Credentials → Create credentials → OAuth client ID → Web
 application.**
 
-Authorized redirect URIs — add one per environment:
+Authorized redirect URIs — add **both kinds**, one per environment:
 
 ```
-http://localhost:3000/api/gcal/callback
-https://<your-app>.vercel.app/api/gcal/callback
+https://<project-ref>.supabase.co/auth/v1/callback     ← sign-in (Supabase)
+http://localhost:3000/api/gcal/callback                ← calendar (this app)
+https://<your-app>.vercel.app/api/gcal/callback        ← calendar (this app)
 ```
+
+Having the Supabase one is no evidence of having the other: they are unrelated,
+and a client carrying only the first signs you in happily and then refuses the
+calendar connection with **`Error 400: redirect_uri_mismatch`**.
+
+Pengaturan prints the exact URI this deployment sends, under
+**"Error 400: redirect_uri_mismatch?"** beside the connect button — copy it from
+there rather than assembling it by hand.
 
 Then fill in:
 
@@ -230,8 +239,12 @@ GOOGLE_CLIENT_SECRET=...
 NEXT_PUBLIC_SITE_URL=http://localhost:3000    # must match the redirect origin
 ```
 
-`NEXT_PUBLIC_SITE_URL` is what the callback URL is built from, so it has to
-match exactly — including scheme and any trailing-slash-free form.
+`NEXT_PUBLIC_SITE_URL` is what that callback URL is built from, so it has to
+match exactly — including scheme and any trailing-slash-free form. It is the
+second way to earn a `redirect_uri_mismatch`: point it at the wrong origin and
+the app sends a URI nobody would think to register. That case *is* detectable,
+so Pengaturan says so outright when the value disagrees with the origin the app
+is being served from.
 
 ### 4. Connect from inside the app
 
