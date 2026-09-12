@@ -2937,3 +2937,138 @@ Not verified against Google itself; no OAuth client exists in this environment.
 What is proved is that the app now shows the string Google is comparing against,
 which is the fact the error page withholds.
 
+### D-152 · The fix is in the message; make it reachable — **Interpreted**
+
+The connection succeeded and the first real call did not: the Calendar API had
+never been enabled on the Cloud project. Creating an OAuth client does not
+enable it, and the consent flow does not need it, so the gap survives every step
+that looks like setup.
+
+This one arrived already diagnosed — D-148's `describeGoogleError` put Google's
+own sentence on the screen, naming the project and the console page. Nothing
+about the message needed improving. What needed improving was that a URL in a
+`<p>` is, on a phone, a paragraph to retype by hand.
+
+So `ErrorNote` renders an upstream error with its `https://` links tappable and
+a **Coba lagi** beneath, and the two places that show Google's errors use it.
+`linkify` is deliberately narrow — `https://` only, never `http://`, never a
+bare hostname, and trailing punctuation goes back to the sentence — because the
+input is an upstream string relayed through our own handler and the smallest
+rule that covers the real case is the one worth having.
+
+The retry matters as much as the link. The failure is transient by nature:
+enable the API, wait for it to propagate, try again. Without it the instruction
+is "reload the app", which on an installed PWA is not an obvious gesture.
+
+`retrying` is owned by the tap, not by the effect (D-071, and the lint rule that
+enforces it): the button sets it, the request clears it, and the automatic first
+attempt leaves it alone because it is not a retry.
+
+This closes the pattern named in D-150. Across D-148 to D-152 the defect was
+always the same — the app knew more than it said — and the last instance is the
+mildest: it said the right thing, in a form that could not be acted on.
+
+### Verification
+
+`npm run lint`, `npm run typecheck` and `npm run build` are clean; the suite is
+green at **380 tests** (374 before, plus 6 for `linkify`, including the device's
+message verbatim and a check that the segments rebuild it exactly).
+
+Rendered in Chromium at 390×844 against a production build, with
+`/api/gcal/status` stubbed to return that error: the console URL is an anchor
+pointing at the full link including its `?project=` query, **Coba lagi** sits
+below it, horizontal overflow 0.
+
+---
+
+## Konflik palsu, dan pita sibuk yang menyebut namanya
+
+### D-153 · The conflict badge compared spellings, not moments — **Bug found on the device**
+
+An agenda created in FOQUS, mirrored to Google, untouched by anyone, came back
+badged **"Diubah dari Google Calendar"**. Not sometimes — every time.
+
+`applyPulledEvents` decided whether Google's copy still matched with
+
+```ts
+agenda.start_at === event.start_at
+```
+
+FOQUS stores UTC (§13) and sends `2026-09-13T00:00:00.000Z`. Google answers in
+the calendar's own timezone: `2026-09-13T07:00:00+07:00`. Same instant,
+different text, so `unchanged` was false for every event the app had just
+written. And because Google stamps `updated` a moment *after* the write that
+created it, `remoteTime > localTime` always held too — straight into the
+conflict branch. Every agenda was overwritten with Google's spelling, stamped
+`gcal_conflict`, and written to `conflict_log`.
+
+Three things were wrong at once, and only one of them was visible:
+
+- **the badge**, which §6.4 designed for a real two-sided edit and which fired
+  on every single write. A warning that is always on is a warning nobody reads,
+  so this cost the one case it exists for.
+- **`updated_at`**, replaced by Google's stamp on an agenda nobody had edited,
+  which is the field last-write-wins arbitrates on.
+- **the stored times**, rewritten into `+07:00` form. §13 is explicit that every
+  datetime is stored in UTC and converted only at the presentation boundary;
+  this was quietly seeding the database with the exception.
+
+`sameInstant` compares `Date.parse` on both sides, and pulled times are
+normalised through `toUtc` before they are stored. An unparseable stamp falls
+back to the string comparison so a malformed value reads as a change rather than
+being silently accepted.
+
+The user's second question — *can an edit made in Google come back to FOQUS?* —
+was already answered yes by §6.3; this is what makes the answer trustworthy
+rather than theoretical, because until now that signal was indistinguishable
+from the noise the bug generated.
+
+### D-154 · A busy band should say what the hour is spoken for — **Requested, deviates from §6.3**
+
+§6.3 specifies the `freebusy` endpoint for the user's other calendars, and
+`freebusy` answers with intervals and nothing else. So every band in the
+timeline was labelled with the *calendar's* name — and the primary calendar's
+name is the user's email address. A column of bands all reading
+"dimasdwiadiguna@g…" tells you only that something is there, which the hatching
+already said.
+
+`listBusyEvents` uses `events.list` per calendar instead, and labels each band
+with the event's own title. The cost is one call per calendar rather than one
+for all of them, which for a personal account is a handful, inside a pull that
+already runs at most every five minutes.
+
+Kept from `freebusy`'s semantics, because the scheduler would otherwise start
+routing around hours that are genuinely free:
+
+- events marked **Free** (`transparency: "transparent"`) are dropped
+- invitations **this user declined** are dropped
+- cancelled events are dropped
+- all-day entries are dropped, as before: they mark a day, not an hour, and
+  blocking the whole day is a worse answer than blocking none of it
+
+`freebusy` stays for the calendars whose events cannot be read — a calendar
+shared at `freeBusyReader` shows its times and genuinely withholds its titles.
+Rather than deciding that from `accessRole`, the code simply tries `events.list`
+and collects the failures into one `freebusy` call. Those bands keep the
+calendar name, which is honest: it is all that is known about them.
+
+A busy event with no title of its own also falls back to the calendar name, so
+the change never leaves a band with nothing to say.
+
+### Verification
+
+`npm run lint`, `npm run typecheck` and `npm run build` are clean; the suite is
+green at **385 tests** (380 before, plus 5): the false conflict against a real
+Dexie under `fake-indexeddb`, a genuine Google edit being applied and badged and
+stored back as UTC, a newer local edit winning, a cancelled event, and an event
+with no agenda.
+
+The busy labels were driven in Chromium at 390×844 against a production build,
+with two rows seeded into `gcal_busy_cache` in the shape a pull now writes: the
+band reads "Standup tim produk", truncates inside its own width, and horizontal
+overflow measures 0.
+
+Not verified against Google itself. `sameInstant` is proved against the exact
+pair of spellings Google and FOQUS produce, and `listBusyEvents` against its
+types; the first real pull after deploy is what confirms the shape.
+

@@ -33,6 +33,35 @@ export interface PullOutcome {
 const IDLE: PullOutcome = { applied: 0, conflicts: 0, removed: 0 };
 
 /**
+ * Two RFC3339 stamps naming the same moment.
+ *
+ * This has to be an instant comparison, not a string one. FOQUS stores UTC
+ * (§13) and sends `2026-09-13T00:00:00.000Z`; Google answers in the calendar's
+ * own timezone, `2026-09-13T07:00:00+07:00`. Identical moment, different text.
+ *
+ * Comparing the text marked *every* agenda FOQUS had just created as changed in
+ * Google — and since Google stamps `updated` a moment after the write, the
+ * remote always looked newer, so each one was overwritten with Google's
+ * spelling and badged "Diubah dari Google Calendar" without anyone touching it.
+ * A conflict badge that fires on every write teaches the user to ignore it,
+ * which costs the one case it exists for.
+ */
+function sameInstant(a: string, b: string): boolean {
+  const left = Date.parse(a);
+  const right = Date.parse(b);
+  // An unparseable stamp is never "the same": fall back to the text so a
+  // malformed value is treated as a change rather than silently accepted.
+  if (Number.isNaN(left) || Number.isNaN(right)) return a === b;
+  return left === right;
+}
+
+/** Google's offset form, back to the UTC the rest of the app stores. */
+function toUtc(value: string): string {
+  const ms = Date.parse(value);
+  return Number.isNaN(ms) ? value : new Date(ms).toISOString();
+}
+
+/**
  * Runs one Google pull. Returns an idle outcome (rather than throwing) when
  * Google is not connected — this is called on a timer and a disconnected
  * account is a normal state, not an error.
@@ -111,7 +140,8 @@ export async function applyPulledEvents(
     const remoteTime = new Date(event.updated).getTime();
     const localTime = new Date(agenda.updated_at).getTime();
     const unchanged =
-      agenda.start_at === event.start_at && agenda.end_at === event.end_at;
+      sameInstant(agenda.start_at, event.start_at) &&
+      sameInstant(agenda.end_at, event.end_at);
 
     if (unchanged) {
       await db.agendas.update(agenda.id, {
@@ -127,8 +157,10 @@ export async function applyPulledEvents(
     }
 
     await db.agendas.update(agenda.id, {
-      start_at: event.start_at,
-      end_at: event.end_at,
+      // Normalised on the way in: §13 stores every datetime in UTC, and Google
+      // answers in the calendar's own offset.
+      start_at: toUtc(event.start_at),
+      end_at: toUtc(event.end_at),
       gcal_event_id: event.event_id,
       gcal_synced_at: nowIso(),
       gcal_conflict: true,
@@ -168,8 +200,9 @@ export async function replaceBusyCache(
   const rows: GcalBusy[] = intervals.map((interval) => ({
     id: newId(),
     user_id: userId,
-    start_at: interval.start_at,
-    end_at: interval.end_at,
+    // Google answers in each calendar's own offset; §13 stores UTC.
+    start_at: toUtc(interval.start_at),
+    end_at: toUtc(interval.end_at),
     calendar_id: interval.calendar_id,
     summary: interval.summary,
     fetched_at: fetchedAt,
