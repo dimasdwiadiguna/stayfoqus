@@ -501,6 +501,9 @@ export const id = {
     gcalNotConfigured:
       "Google OAuth belum disiapkan di deployment ini (GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET).",
     gcalSyncNow: "Sinkronkan sekarang",
+    gcalReconnect: "Hubungkan ulang Google Calendar",
+    gcalScopesStale:
+      "Izin Google yang tersimpan belum mencakup pembuatan kalender. Hubungkan ulang untuk memberi izin itu.",
 
     sectionGcal: "Google Calendar",
     gcalEnabled: "Sinkronisasi aktif",

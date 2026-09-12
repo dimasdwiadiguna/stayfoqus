@@ -14,6 +14,8 @@ interface GcalStatus {
   configured: boolean;
   signed_in: boolean;
   connected: boolean;
+  /** False when the stored token predates a scope the app now needs. */
+  scopes_ok?: boolean;
 }
 
 /**
@@ -27,6 +29,7 @@ export function AccountSection() {
   const settings = useSettings();
   const [email, setEmail] = React.useState<string | null>(null);
   const [status, setStatus] = React.useState<GcalStatus | null>(null);
+  const [setupError, setSetupError] = React.useState<string | null>(null);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -61,21 +64,29 @@ export function AccountSection() {
    * the user having to open the picker at all.
    */
   React.useEffect(() => {
-    if (!status?.connected || settings.gcal_calendar_id) return;
+    if (!status?.connected || status.scopes_ok === false) return;
+    if (settings.gcal_calendar_id) return;
     let cancelled = false;
 
     void (async () => {
       try {
         const res = await fetch("/api/gcal/status", { method: "POST" });
-        if (!res.ok) return;
         const json = (await res.json()) as {
-          calendar_id: string;
-          calendar_name: string;
+          calendar_id?: string;
+          calendar_name?: string;
+          error?: string;
         };
         if (cancelled) return;
+        if (!res.ok || !json.calendar_id) {
+          // Google's own sentence, not a generic failure. This is the path that
+          // used to surface an unreadable 403 about missing scopes.
+          setSetupError(json.error ?? String(res.status));
+          return;
+        }
+        setSetupError(null);
         await updateSettings({
           gcal_calendar_id: json.calendar_id,
-          gcal_calendar_name: json.calendar_name,
+          gcal_calendar_name: json.calendar_name ?? null,
         });
       } catch {
         // Offline, or Google unreachable. The picker still works later.
@@ -85,7 +96,7 @@ export function AccountSection() {
     return () => {
       cancelled = true;
     };
-  }, [status?.connected, settings.gcal_calendar_id]);
+  }, [status?.connected, status?.scopes_ok, settings.gcal_calendar_id]);
 
   const supabaseReady = isSupabaseConfigured();
 
@@ -131,6 +142,23 @@ export function AccountSection() {
           </div>
         )}
 
+        {status?.connected && status.scopes_ok === false ? (
+          <div className="space-y-2 rounded-lg border border-warning/40 bg-surface-2 px-3 py-2.5">
+            <p className="text-[13px] text-warning">{t.settings.gcalScopesStale}</p>
+            <Button variant="primary" block asChild>
+              <a href="/api/gcal/connect?return_to=/settings">
+                {t.settings.gcalReconnect}
+              </a>
+            </Button>
+          </div>
+        ) : null}
+
+        {setupError ? (
+          <p className="rounded-lg border border-danger/40 bg-danger/10 px-3 py-2 font-mono text-[11px] break-words text-danger">
+            {setupError}
+          </p>
+        ) : null}
+
         {status?.connected ? (
           <Row
             label={t.settings.gcalConnected}
@@ -167,7 +195,7 @@ export function AccountSection() {
         )}
       </Section>
 
-      <GcalSection connected={status?.connected === true} />
+      <GcalSection connected={status?.connected === true && status.scopes_ok !== false} />
     </>
   );
 }

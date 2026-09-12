@@ -1,10 +1,7 @@
 import { NextResponse } from "next/server";
 
-import {
-  GOOGLE_SCOPES,
-  currentUserId,
-  googleClientConfig,
-} from "@/lib/gcal/server";
+import { currentUserId, googleClientConfig } from "@/lib/gcal/server";
+import { GOOGLE_SCOPES } from "@/lib/gcal/scopes";
 
 export const dynamic = "force-dynamic";
 

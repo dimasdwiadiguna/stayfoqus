@@ -148,7 +148,15 @@ Google is the only provider FOQUS uses (§2).
 **APIs & Services → OAuth consent screen.**
 
 - User type: **External** (unless you have a Workspace org).
-- Scopes: add `.../auth/calendar.events` and `.../auth/calendar.readonly`.
+- Scopes: add all three of
+  `.../auth/calendar.calendars`, `.../auth/calendar.events` and
+  `.../auth/calendar.readonly`.
+
+  `calendar.calendars` is the one that permits *creating* a calendar
+  (`calendars.insert`); `calendar.events` and `calendar.readonly` do not, which
+  is why "find or create the FOQUS calendar" used to fail with a 403 about
+  insufficient scopes. The broad `calendar` scope would also work and grants far
+  more than this app touches.
 - While the app is unverified, add your own account under **Test users**. An
   unverified app is limited to test users and its refresh tokens expire after
   seven days — fine for personal use, and the reason FOQUS treats a failed
@@ -182,6 +190,11 @@ match exactly — including scheme and any trailing-slash-free form.
 Sign in with Google first, then **Pengaturan → Hubungkan Google Calendar**.
 The calendar scopes are requested *after* login, as incremental authorization
 (§6.1) — the login itself asks for nothing beyond identity.
+
+If you connected before the `calendar.calendars` scope was added, the stored
+token cannot create a calendar and Pengaturan says so with a
+**"Hubungkan ulang Google Calendar"** button — a token's scopes cannot be
+widened in place.
 
 On first connect FOQUS finds or creates a secondary calendar named **FOQUS** so
 there is somewhere to write immediately. Everything after that is yours to set,
@@ -225,10 +238,18 @@ FOQUS_ACCESS_PASSWORD=something-long-and-yours
 - Leave the variable empty and the gate is off, which is what keeps
   `npm run dev` frictionless.
 
-An already-installed PWA keeps working offline while the deployment is locked,
-because the service worker answers from its precache and never reaches the
-middleware. That is the intended trade: the gate protects the deployment, not
-the device.
+**The service worker must not precache the app's documents**, or there is no
+gate at all. Serwist registers its precache route ahead of every runtime route,
+so a precached `/tasks` is answered from the cache and the request never reaches
+the middleware — online or off. FOQUS therefore precaches only assets and the
+`/offline` fallback, serves navigations network-first, and warms the page cache
+after boot (`lib/pwa/`) so every tab still opens on a cold start with no
+connection. A cached document is never a redirect, so a locked session cannot be
+stored under an app URL.
+
+The consequence: an already-installed PWA keeps working offline with whatever it
+last cached while unlocked. The gate protects the deployment, not the device —
+and the device's copy is already the user's own.
 
 ---
 
@@ -267,6 +288,8 @@ The suite covers what `BRIEF.md` §13 asks for:
 - todo hierarchy, dependency cycles and derived counters
 - the §5.9 agenda↔todo coupling rule and the §9 streak
 - the access gate's token: expiry, forgery, and rotation revoking old sessions
+- which URLs may be precached, so a document never shadows the gate again
+- the Google scope set, and reading Google's error envelope
 - claiming local rows for the account at first sign-in
 - reading the Google configuration from a settings row older than the migration
   that added it

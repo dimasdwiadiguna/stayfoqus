@@ -1,6 +1,7 @@
 import "server-only";
 
 import { getServerSupabase, getServiceSupabase } from "@/lib/supabase/server";
+import { GOOGLE_SCOPES, missingScopesFrom } from "@/lib/gcal/scopes";
 import type {
   GcalBusyInterval,
   GcalCalendar,
@@ -18,12 +19,6 @@ import type {
 
 const TOKEN_URL = "https://oauth2.googleapis.com/token";
 const CALENDAR_API = "https://www.googleapis.com/calendar/v3";
-
-/** §6.1 — `calendar.events` to write, `calendar.readonly` for freebusy. */
-export const GOOGLE_SCOPES = [
-  "https://www.googleapis.com/auth/calendar.events",
-  "https://www.googleapis.com/auth/calendar.readonly",
-];
 
 export const FOQUS_CALENDAR_NAME = "FOQUS";
 
@@ -574,4 +569,24 @@ export async function fetchBusy(
 
 export async function isConnected(userId: string): Promise<boolean> {
   return (await readCredentials(userId)) !== null;
+}
+
+/**
+ * The scopes this app needs that Google has not granted to the stored token.
+ *
+ * Google returns the granted set on every token response and it is stored
+ * verbatim, so this is answered without a network call. An empty array means
+ * the connection is complete; anything else means the user consented under an
+ * older scope list and has to reconnect — there is no way to widen a token in
+ * place.
+ */
+/**
+ * The scopes this app needs that Google has not granted to the stored token.
+ * An empty array means the connection is complete; anything else means the user
+ * consented under an older scope list and has to reconnect.
+ */
+export async function missingScopes(userId: string): Promise<string[]> {
+  const creds = await readCredentials(userId);
+  if (!creds) return [...GOOGLE_SCOPES];
+  return missingScopesFrom(creds.scope);
 }

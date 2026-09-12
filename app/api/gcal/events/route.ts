@@ -7,6 +7,7 @@ import {
   resolveCalendar,
   upsertEvent,
 } from "@/lib/gcal/server";
+import { describeGoogleError } from "@/lib/gcal/scopes";
 import type { GcalEventPayload } from "@/lib/gcal/types";
 
 export const dynamic = "force-dynamic";
@@ -44,7 +45,7 @@ export async function POST(request: Request) {
     return NextResponse.json(result);
   } catch (err) {
     const status = err instanceof GcalError ? err.status : 500;
-    return NextResponse.json({ error: String(err) }, { status });
+    return NextResponse.json({ error: describeGoogleError(err) }, { status });
   }
 }
 
@@ -68,6 +69,6 @@ export async function DELETE(request: Request) {
     return NextResponse.json({ ok: true });
   } catch (err) {
     const status = err instanceof GcalError ? err.status : 500;
-    return NextResponse.json({ error: String(err) }, { status });
+    return NextResponse.json({ error: describeGoogleError(err) }, { status });
   }
 }
