@@ -2893,3 +2893,47 @@ Not verified against a live project with the Site URL left at its default. That
 state exists only in someone's dashboard, and there is nothing in the app to
 assert against — which is the whole reason this is copy rather than a check.
 
+### D-151 · One error, two causes: name the one that can be checked — **Extends D-150**
+
+`Error 400: redirect_uri_mismatch` on the calendar connect, from a client whose
+sign-in callback was already registered and working. The two causes are
+indistinguishable from Google's page:
+
+1. **The URI was never added.** The same OAuth client serves sign-in and
+   calendar, through two unrelated redirect URIs —
+   `https://<ref>.supabase.co/auth/v1/callback` and
+   `https://<app>/api/gcal/callback`. Having the first is no evidence of the
+   second, and sign-in working is exactly what makes the second easy to assume.
+2. **`NEXT_PUBLIC_SITE_URL` names a different origin than the app is served
+   from.** `googleClientConfig` builds the URI from it, so the value sent is one
+   nobody would think to register.
+
+The second is decidable — the app holds both origins and can compare them — so
+it is a warning, stated in full, with the origin named. The first is not, so it
+follows D-150: the exact value, ready to copy, folded, and no claim that
+anything is wrong. Same distinction as before, now applied twice on one screen:
+**assert what is known, state what is merely required.**
+
+The redirect URI is reported by `/api/gcal/status`, which is where the client
+already learns whether Google is configured at all. It is public by nature — it
+travels in the OAuth URL on every connect — so publishing it costs nothing and
+saves reading it out of Google's "see error details".
+
+The fold opens by itself when the mismatch is detected, because in that case it
+is no longer a reference: it is the evidence.
+
+### Verification
+
+`npm run lint`, `npm run typecheck` and `npm run build` are clean; **374 tests**,
+unchanged — no rule is touched.
+
+Rendered in Chromium at 390×844 against a production build, with
+`/api/gcal/status` stubbed to both states. Matching origin: the fold sits closed
+under the connect button and opens to the URI. Mismatched: the warning names the
+served origin, the fold is already open, and the URI shown is the wrong one — the
+whole diagnosis on one screen. Horizontal overflow 0 in both.
+
+Not verified against Google itself; no OAuth client exists in this environment.
+What is proved is that the app now shows the string Google is comparing against,
+which is the fact the error page withholds.
+

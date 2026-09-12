@@ -18,6 +18,8 @@ interface GcalStatus {
   connected: boolean;
   /** False when the stored token predates a scope the app now needs. */
   scopes_ok?: boolean;
+  /** The exact redirect_uri this deployment sends to Google. */
+  redirect_uri?: string | null;
 }
 
 /**
@@ -218,11 +220,14 @@ export function AccountSection() {
             }
           />
         ) : status?.signed_in && status.configured ? (
-          <Button variant="primary" block asChild>
-            <a href="/api/gcal/connect?return_to=/settings">
-              {t.settings.gcalConnect}
-            </a>
-          </Button>
+          <>
+            <Button variant="primary" block asChild>
+              <a href="/api/gcal/connect?return_to=/settings">
+                {t.settings.gcalConnect}
+              </a>
+            </Button>
+            <RedirectUriHelp redirectUri={status.redirect_uri ?? null} />
+          </>
         ) : status && !status.configured ? (
           <p className="text-[13px] text-fg-subtle">{t.settings.gcalNotConfigured}</p>
         ) : (
@@ -273,5 +278,57 @@ function SignInChecklist() {
         </div>
       </dl>
     </Disclosure>
+  );
+}
+
+/**
+ * The one string Google has to recognise, and the one case the app can check.
+ *
+ * `Error 400: redirect_uri_mismatch` has two causes and they look identical
+ * from the error page. Either the URI was never added to the OAuth client — the
+ * same client already carries Supabase's sign-in callback, and the two are
+ * unrelated, so having one is no evidence of the other — or
+ * `NEXT_PUBLIC_SITE_URL` names a different origin than the app is being served
+ * from, and the URI being sent is not the one anybody would think to register.
+ *
+ * The second is genuinely detectable, so it is stated as a warning rather than
+ * as a fold: the app can see both origins and knows they disagree. The first is
+ * not, so it gets the same treatment as the Supabase allow list — the exact
+ * value, ready to copy, and no claim that anything is wrong.
+ */
+function RedirectUriHelp({ redirectUri }: { redirectUri: string | null }) {
+  if (!redirectUri) return null;
+
+  // Read in render rather than from an effect (D-071): nothing here is
+  // server-rendered, because BootGate holds the shell until the client is ready.
+  const origin = typeof window === "undefined" ? "" : window.location.origin;
+
+  let mismatched = false;
+  try {
+    mismatched = origin.length > 0 && new URL(redirectUri).origin !== origin;
+  } catch {
+    // An unparseable value is a misconfiguration of its own, and showing it
+    // verbatim below says more than any guess this could make.
+  }
+
+  return (
+    <>
+      {mismatched ? (
+        <p className="rounded-lg border border-warning/40 bg-surface-2 px-3 py-2.5 text-[13px] text-warning">
+          {t.settings.gcalOriginMismatch(origin)}
+        </p>
+      ) : null}
+
+      <Disclosure
+        label={t.settings.gcalRedirectHelpTitle}
+        defaultOpen={mismatched}
+        contentClassName="space-y-1.5 pb-1"
+      >
+        <p className="text-[11px] leading-relaxed text-fg-subtle">
+          {t.settings.gcalRedirectHelpBlurb}
+        </p>
+        <p className="font-mono text-[11px] break-all text-fg">{redirectUri}</p>
+      </Disclosure>
+    </>
   );
 }
