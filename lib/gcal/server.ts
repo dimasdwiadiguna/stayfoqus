@@ -534,24 +534,138 @@ export async function fetchBusy(
   const entries = await calendarList(userId);
 
   const allowed = selected === null ? null : new Set(selected);
-  const ids = entries
-    .map((c) => c.id)
-    .filter((calendarId) => calendarId !== foqusCalendarId)
-    .filter((calendarId) => allowed === null || allowed.has(calendarId));
-  if (ids.length === 0) return [];
+  const wanted = entries
+    .filter((c) => c.id !== foqusCalendarId)
+    .filter((c) => allowed === null || allowed.has(c.id));
+  if (wanted.length === 0) return [];
 
-  const { timeMin, timeMax } = windowBounds(window);
-  const body = {
-    timeMin,
-    timeMax,
-    items: ids.map((calendarId) => ({ id: calendarId })),
-  };
+  const bounds = windowBounds(window);
+  const out: GcalBusyInterval[] = [];
+  /*
+   * Calendars whose events could not be read — most often a calendar shared at
+   * `freeBusyReader`, where the times are visible and the titles genuinely are
+   * not. They fall through to `freebusy`, which is what §6.3 originally
+   * specified for everything.
+   */
+  const opaque: CalendarListEntry[] = [];
 
+  for (const calendar of wanted) {
+    try {
+      out.push(...(await listBusyEvents(userId, calendar, bounds)));
+    } catch {
+      opaque.push(calendar);
+    }
+  }
+
+  if (opaque.length > 0) {
+    out.push(...(await freeBusyFor(userId, opaque, bounds)));
+  }
+
+  return out;
+}
+
+interface WindowBounds {
+  timeMin: string;
+  timeMax: string;
+}
+
+interface BusyEvent {
+  status?: string;
+  summary?: string;
+  transparency?: string;
+  start?: { dateTime?: string; date?: string };
+  end?: { dateTime?: string; date?: string };
+  attendees?: { self?: boolean; responseStatus?: string }[];
+}
+
+/**
+ * One calendar's occupied time, with the titles.
+ *
+ * §6.3 specifies `freebusy` here, which answers with intervals and nothing
+ * else — so every band in the timeline was labelled with the *calendar's* name,
+ * and for the primary calendar that name is the user's email address. A row of
+ * bands all reading "dimas@…" says only "something is here", which the shading
+ * already said.
+ *
+ * `events.list` costs one call per calendar instead of one for all of them, and
+ * returns what the band is for: what the hour is actually spoken for.
+ *
+ * Two kinds of event are dropped, because `freebusy` drops them too and the
+ * scheduler would otherwise start avoiding hours that are genuinely free:
+ * anything marked Free (`transparency: "transparent"`), and any invitation this
+ * user has declined.
+ */
+async function listBusyEvents(
+  userId: string,
+  calendar: CalendarListEntry,
+  bounds: WindowBounds,
+): Promise<GcalBusyInterval[]> {
+  const encoded = encodeURIComponent(calendar.id);
+  const out: GcalBusyInterval[] = [];
+  let pageToken: string | undefined;
+
+  do {
+    const params = new URLSearchParams({
+      singleEvents: "true",
+      orderBy: "startTime",
+      maxResults: "250",
+      timeMin: bounds.timeMin,
+      timeMax: bounds.timeMax,
+    });
+    if (pageToken) params.set("pageToken", pageToken);
+
+    const page = await googleJson<{ items?: BusyEvent[]; nextPageToken?: string }>(
+      userId,
+      `/calendars/${encoded}/events?${params.toString()}`,
+    );
+
+    for (const item of page.items ?? []) {
+      if (item.status === "cancelled") continue;
+      if (item.transparency === "transparent") continue;
+      if (item.attendees?.some((a) => a.self && a.responseStatus === "declined")) {
+        continue;
+      }
+      // All-day entries carry `date` rather than `dateTime`. They mark a day,
+      // not an hour, and blocking the whole day would be a worse answer than
+      // blocking none of it.
+      const start = item.start?.dateTime;
+      const end = item.end?.dateTime;
+      if (!start || !end) continue;
+
+      out.push({
+        calendar_id: calendar.id,
+        start_at: start,
+        end_at: end,
+        // A busy event with no title of its own falls back to the calendar's
+        // name, which is the old behaviour and still better than nothing.
+        summary: item.summary ?? calendar.summary ?? null,
+      });
+    }
+
+    pageToken = page.nextPageToken;
+  } while (pageToken);
+
+  return out;
+}
+
+/** §6.3's original path, kept for the calendars whose events are not readable. */
+async function freeBusyFor(
+  userId: string,
+  calendars: readonly CalendarListEntry[],
+  bounds: WindowBounds,
+): Promise<GcalBusyInterval[]> {
   const result = await googleJson<{
     calendars?: Record<string, { busy?: { start: string; end: string }[] }>;
-  }>(userId, "/freeBusy", { method: "POST", body: JSON.stringify(body) });
+  }>(userId, "/freeBusy", {
+    method: "POST",
+    body: JSON.stringify({
+      timeMin: bounds.timeMin,
+      timeMax: bounds.timeMax,
+      items: calendars.map((c) => ({ id: c.id })),
+    }),
+  });
 
-  const summaries = new Map(entries.map((c) => [c.id, c.summary] as const));
+  const names = new Map(calendars.map((c) => [c.id, c.summary] as const));
 
   const out: GcalBusyInterval[] = [];
   for (const [calendarId, entry] of Object.entries(result.calendars ?? {})) {
@@ -560,7 +674,7 @@ export async function fetchBusy(
         calendar_id: calendarId,
         start_at: slot.start,
         end_at: slot.end,
-        summary: summaries.get(calendarId) ?? null,
+        summary: names.get(calendarId) ?? null,
       });
     }
   }

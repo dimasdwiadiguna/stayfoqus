@@ -360,6 +360,8 @@ The suite covers what `BRIEF.md` §13 asks for:
 - the access gate's token: expiry, forgery, and rotation revoking old sessions
 - which URLs may be precached, so a document never shadows the gate again
 - the Google scope set, and reading Google's error envelope
+- applying what Google sends back: same instant vs. same spelling, a real remote
+  edit, a newer local edit, a cancellation
 - reading GoTrue's settings document, so a disabled provider is caught early
 - claiming local rows for the account at first sign-in
 - reading the Google configuration from a settings row older than the migration
