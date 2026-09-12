@@ -162,7 +162,7 @@ export function GcalSection({ connected }: { connected: boolean }) {
 
 type ListState =
   | { status: "loading" }
-  | { status: "failed" }
+  | { status: "failed"; reason: string | null }
   | { status: "ready"; calendars: GcalCalendar[] };
 
 /**
@@ -178,11 +178,22 @@ function useCalendars(): [ListState, (next: GcalCalendar) => void] {
     void (async () => {
       try {
         const res = await fetch("/api/gcal/calendars");
-        if (!res.ok) throw new Error(String(res.status));
-        const json = (await res.json()) as { calendars: GcalCalendar[] };
-        if (!cancelled) setState({ status: "ready", calendars: json.calendars });
-      } catch {
-        if (!cancelled) setState({ status: "failed" });
+        const json = (await res.json()) as {
+          calendars?: GcalCalendar[];
+          error?: string;
+        };
+        if (cancelled) return;
+        if (!res.ok || !json.calendars) {
+          // Google's own wording. A generic "could not load" hides the one
+          // sentence that says what to do about it.
+          setState({ status: "failed", reason: json.error ?? String(res.status) });
+          return;
+        }
+        setState({ status: "ready", calendars: json.calendars });
+      } catch (err) {
+        if (!cancelled) {
+          setState({ status: "failed", reason: err instanceof Error ? err.message : null });
+        }
       }
     })();
     return () => {
@@ -246,12 +257,18 @@ function CalendarPicker({
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ name: trimmed }),
       });
-      if (!res.ok) throw new Error(String(res.status));
-      const json = (await res.json()) as { calendar: GcalCalendar };
+      const json = (await res.json()) as {
+        calendar?: GcalCalendar;
+        error?: string;
+      };
+      if (!res.ok || !json.calendar) {
+        toast.error(json.error ?? t.settings.gcalCalendarsFailed);
+        return;
+      }
       append(json.calendar);
       await choose(json.calendar);
-    } catch {
-      toast.error(t.settings.gcalCalendarsFailed);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : t.settings.gcalCalendarsFailed);
     } finally {
       setCreating(false);
     }
@@ -266,7 +283,14 @@ function CalendarPicker({
       {state.status === "loading" ? (
         <p className="text-[13px] text-fg-muted">{t.settings.gcalLoadingCalendars}</p>
       ) : state.status === "failed" ? (
-        <p className="text-[13px] text-danger">{t.settings.gcalCalendarsFailed}</p>
+        <div className="space-y-1">
+          <p className="text-[13px] text-danger">{t.settings.gcalCalendarsFailed}</p>
+          {state.reason ? (
+            <p className="font-mono text-[11px] break-words text-fg-subtle">
+              {state.reason}
+            </p>
+          ) : null}
+        </div>
       ) : (
         <ul className="space-y-0.5">
           {state.calendars.map((calendar) => {

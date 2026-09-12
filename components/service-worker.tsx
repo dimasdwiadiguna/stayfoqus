@@ -2,6 +2,8 @@
 
 import * as React from "react";
 
+import { warmAppShell } from "@/lib/pwa/warm";
+
 /**
  * Registers the Serwist-generated worker. Kept out of `next.config` because
  * Serwist runs in configurator mode (see `serwist.config.mjs`) and therefore
@@ -15,6 +17,10 @@ export function ServiceWorkerRegistrar() {
     const register = () => {
       navigator.serviceWorker
         .register("/sw.js", { scope: "/" })
+        // The documents are no longer precached, so the worker starts with an
+        // empty page cache. Filling it here is what keeps a cold start offline
+        // working on a tab the user has not opened yet.
+        .then(() => warmAppShell())
         .catch((err) => console.warn("[foqus] service worker failed", err));
     };
 

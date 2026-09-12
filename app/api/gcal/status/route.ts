@@ -8,7 +8,9 @@ import {
   findOrCreateFoqusCalendar,
   googleClientConfig,
   isConnected,
+  missingScopes,
 } from "@/lib/gcal/server";
+import { describeGoogleError } from "@/lib/gcal/scopes";
 
 export const dynamic = "force-dynamic";
 
@@ -20,10 +22,17 @@ export async function GET() {
     return NextResponse.json({ configured, signed_in: false, connected: false });
   }
   try {
+    const connected = configured && (await isConnected(userId));
+    // A connection made before `calendar.calendars` was requested cannot create
+    // a calendar, and says so with a 403 nobody can read. Reported here so the
+    // UI can ask for a reconnect before anything fails.
+    const missing = connected ? await missingScopes(userId) : [];
     return NextResponse.json({
       configured,
       signed_in: true,
-      connected: configured && (await isConnected(userId)),
+      connected,
+      scopes_ok: missing.length === 0,
+      missing_scopes: missing,
     });
   } catch {
     return NextResponse.json({ configured, signed_in: true, connected: false });
@@ -46,7 +55,7 @@ export async function POST() {
     });
   } catch (err) {
     const status = err instanceof GcalError ? err.status : 500;
-    return NextResponse.json({ error: String(err) }, { status });
+    return NextResponse.json({ error: describeGoogleError(err) }, { status });
   }
 }
 

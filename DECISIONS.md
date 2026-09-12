@@ -2670,3 +2670,128 @@ parts only. The first real connect is the test that matters, and
 Pengaturan → Sinkronisasi → "Periksa koneksi database" exists to make its
 failures legible rather than mysterious.
 
+---
+
+## Dua hal yang menghalangi integrasi pertama
+
+Reported from the device after the env vars and the Supabase project were filled
+in for the first time: *"tidak ada password di awal app"*, and the calendar
+settings still errored. Two separate causes, both found by reproducing rather
+than by reading.
+
+### D-146 · A precached document is a hole straight through the access gate — **Bug found in the browser**
+
+D-144 put the gate in `middleware.ts` and verified it with `curl`, which is
+exactly the test that cannot see this: a fresh HTTP client has no service
+worker.
+
+`serwist build` was precaching the app's own HTML documents — `/`, `/tasks`,
+`/calendar`, `/today`, `/week`, `/settings` — and `Serwist`'s constructor
+registers its `PrecacheRoute` **before** any `runtimeCaching` entry
+(`node_modules/serwist/src/Serwist.ts`, the precache route at construction vs.
+the runtime routes after it). The router matches in registration order, so every
+navigation was answered from the cache. The request never left the browser, the
+middleware never ran, and the gate never appeared — online or off, on any device
+that had opened the app once. D-144's own note that "an installed PWA keeps
+working offline while locked" was true and far too generous: it was not a trade,
+it was a bypass.
+
+The fix cannot be a smaller one. To have a server-side gate, the server has to
+answer navigations:
+
+- **Documents are no longer precached.** `isAppDocument` in `lib/pwa/shell.ts`
+  filters them out of `__SW_MANIFEST` at worker startup. The test is "no file
+  extension" rather than a list of routes, so a route added later is covered
+  without anyone remembering this file. `/offline` is the one exception — a
+  fallback that is not precached cannot be served.
+- **Navigations are network-first**, with the last good copy as the fallback.
+- **A redirect is never cached.** The `onlyPlainDocuments` plugin refuses
+  anything that is not a plain 200, because otherwise a locked navigation would
+  store the lock screen under `/tasks` and the app would open to a dead end
+  offline. The Cache API refuses a redirected response for a navigation anyway,
+  so this is correctness before it is policy.
+- **The shell is warmed after boot** (`lib/pwa/warm.ts`). Without it §10's
+  "usable with the network off" would quietly regress to one route, because
+  tapping a tab is a client-side navigation in Next.js — it fetches an RSC
+  payload and never the HTML, so no other document would ever be cached. Warming
+  from the app shell rather than from the worker's `install` also means every
+  document stored is one an unlocked session was entitled to.
+
+Verified in Chromium against a production build, which is the only test that
+would have caught it. With the **previous** worker installed and all five
+documents in its precache, deploying the new worker put the gate up on the first
+load, and by the second visit the stale precache held `/offline` and nothing
+else — Serwist's own cleanup removes entries no longer in the manifest.
+
+### D-147 · §6.1's scopes cannot create the calendar §6.1 asks for — **Bug, and a conflict with the brief**
+
+The second report. `calendarList.list` and `freebusy.query` both worked, so the
+connection looked healthy; only *creating* the FOQUS calendar failed, with a 403
+whose text never reached the screen.
+
+§2 and §6.1 fix the scopes at `calendar.events` and `calendar.readonly`. Google's
+discovery document — `https://www.googleapis.com/discovery/v1/apis/calendar/v3/rest`,
+fetched rather than recalled — lists `calendars.insert` as accepting
+`calendar`, `calendar.app.created` or `calendar.calendars`, and **none of the
+two the brief names**. So §6.1's very first instruction, "find or create a
+secondary calendar named FOQUS", could never succeed as specified.
+
+This is a §14 case ("Google API … scope issues that would change the
+architecture") and it is recorded as a deviation rather than silently widened.
+`calendar.calendars` is added: it is the narrowest scope that permits calendar
+creation and management, and it grants nothing about anyone's events. The broad
+`calendar` scope would also work and was rejected for being far more than this
+app touches.
+
+Three consequences, all handled rather than left to be discovered:
+
+- **A token's scopes cannot be widened in place.** Anyone already connected
+  holds a token granted under the old list. `missingScopesFrom` compares the
+  stored grant against the required set — no network call, because Google
+  returns the granted scopes on every token response and they are already
+  stored — and Pengaturan offers "Hubungkan ulang" instead of failing later.
+- **An unknown grant counts as incomplete.** A token stored before scopes were
+  recorded would otherwise pass and then 403 mid-sync. Prompting a reconnect is
+  the cheaper mistake.
+- **The consent screen needs the scope too.** An External app must list it, so
+  the README's Google Cloud section now names all three.
+
+### D-148 · Google's own sentence, not "tidak bisa memuat" — **Interpreted**
+
+What made D-147 take a round trip to diagnose is that the app had the answer and
+threw it away. Every route handler returned `String(err)` — the whole JSON
+envelope — and every caller rendered a fixed Indonesian string over it. The
+screen said "Tidak bisa memuat daftar kalender" when Google had said
+"Request had insufficient authentication scopes."
+
+`describeGoogleError` digs out the one sentence, handling both shapes Google
+uses (the API's nested `error.message`, and the token endpoint's flatter
+`error_description`) and falling through to truncated plain text. The settings
+screen now shows the generic line *and* the specific one underneath in mono,
+because the first tells the user what failed and the second tells them what to
+do.
+
+### Verification
+
+`npm run lint`, `npm run typecheck` and `npm run build` are clean. The Vitest
+suite is green at **370 tests** (355 before, plus 15): which URLs may be
+precached, the scope set and the stale-grant comparison, and Google's two error
+envelopes.
+
+Driven in Chromium against a production build, with a persistent profile so the
+service worker and its caches survive between runs:
+
+| | result |
+|---|---|
+| gate off → worker installs, shell warms | `pages` cache holds all five routes |
+| gate on, worker already installed | `/tasks` → `/gate?next=%2Ftasks`, password field present |
+| unlock through the form | lands on `/tasks`, app renders |
+| page cache after unlocking | app shells under app URLs, the gate page only under `/gate` |
+| **previous** worker installed, new one deployed | gate on the first load |
+| second visit | stale precache reduced to `/offline` |
+
+Still not verified against Google: no OAuth client was configured in this
+environment, so D-147's fix is proved against Google's published scope table and
+its own tests, not against a live 403 becoming a 200. That first connect remains
+the test that matters.
+

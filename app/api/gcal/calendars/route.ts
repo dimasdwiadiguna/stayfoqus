@@ -6,6 +6,7 @@ import {
   currentUserId,
   listCalendars,
 } from "@/lib/gcal/server";
+import { describeGoogleError } from "@/lib/gcal/scopes";
 
 export const dynamic = "force-dynamic";
 
@@ -22,7 +23,7 @@ export async function GET() {
     return NextResponse.json({ calendars: await listCalendars(userId) });
   } catch (err) {
     const status = err instanceof GcalError ? err.status : 500;
-    return NextResponse.json({ error: String(err) }, { status });
+    return NextResponse.json({ error: describeGoogleError(err) }, { status });
   }
 }
 
@@ -47,6 +48,6 @@ export async function POST(request: Request) {
     return NextResponse.json({ calendar: await createCalendar(userId, name) });
   } catch (err) {
     const status = err instanceof GcalError ? err.status : 500;
-    return NextResponse.json({ error: String(err) }, { status });
+    return NextResponse.json({ error: describeGoogleError(err) }, { status });
   }
 }
