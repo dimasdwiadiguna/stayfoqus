@@ -88,7 +88,19 @@ export function defaultSettings(): Omit<
     bell_enabled: true,
     bell_volume: 0.6,
     theme: "dark",
+    // Google Calendar is on by default but has nothing to sync until a
+    // calendar is chosen in Pengaturan — `gcal_calendar_id` is what actually
+    // gates every call.
+    gcal_enabled: true,
     gcal_calendar_id: null,
+    gcal_calendar_name: null,
+    gcal_write_enabled: true,
+    gcal_busy_enabled: true,
+    // Null, not []: "every other calendar" is the §6.3 default, and an empty
+    // array would mean the opposite — no calendar is busy.
+    gcal_busy_calendar_ids: null,
+    gcal_window_past_days: 7,
+    gcal_window_future_days: 30,
     gcal_sync_token: null,
   };
 }

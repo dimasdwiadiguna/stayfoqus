@@ -4,7 +4,7 @@ import {
   GcalError,
   currentUserId,
   deleteEvent,
-  findOrCreateFoqusCalendar,
+  resolveCalendar,
   upsertEvent,
 } from "@/lib/gcal/server";
 import type { GcalEventPayload } from "@/lib/gcal/types";
@@ -28,7 +28,10 @@ export async function POST(request: Request) {
   }
 
   try {
-    const calendarId = await findOrCreateFoqusCalendar(userId);
+    // The calendar the user chose in Pengaturan, validated server-side —
+    // `resolveCalendar` refuses the primary and falls back when the choice has
+    // gone stale.
+    const calendarId = await resolveCalendar(userId, body.calendar_id);
     const result = await upsertEvent(userId, {
       calendarId,
       agendaId: body.agenda_id,
@@ -49,9 +52,9 @@ export async function DELETE(request: Request) {
   const userId = await currentUserId();
   if (!userId) return NextResponse.json({ error: "not_signed_in" }, { status: 401 });
 
-  let body: { event_id?: string };
+  let body: { event_id?: string; calendar_id?: string | null };
   try {
-    body = (await request.json()) as { event_id?: string };
+    body = (await request.json()) as { event_id?: string; calendar_id?: string | null };
   } catch {
     return NextResponse.json({ error: "bad_request" }, { status: 400 });
   }
@@ -60,7 +63,7 @@ export async function DELETE(request: Request) {
   }
 
   try {
-    const calendarId = await findOrCreateFoqusCalendar(userId);
+    const calendarId = await resolveCalendar(userId, body.calendar_id ?? null);
     await deleteEvent(userId, calendarId, body.event_id);
     return NextResponse.json({ ok: true });
   } catch (err) {

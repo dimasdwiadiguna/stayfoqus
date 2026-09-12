@@ -40,6 +40,42 @@ async function queueGcalUpsert(agendaId: UUID): Promise<void> {
   await enqueue("gcal", agendaId, "update", op);
 }
 
+/**
+ * Queues every mirrorable agenda that Google does not have yet.
+ *
+ * The repair path for the two ways an agenda can end up unmirrored: writing was
+ * switched off in Pengaturan while it was created, or the calendar was changed
+ * and the old events belong to a calendar FOQUS no longer writes to. Called by
+ * "Sinkronkan sekarang".
+ */
+export async function queueMissingGcalEvents(): Promise<number> {
+  const db = getDb();
+  const agendas = await db.agendas.toArray();
+
+  const pending = agendas.filter(
+    (agenda) =>
+      !agenda.deleted_at && isSyncable(agenda.status) && !agenda.gcal_event_id,
+  );
+  if (pending.length === 0) return 0;
+
+  await db.transaction("rw", db.outbox, async () => {
+    for (const agenda of pending) await queueGcalUpsert(agenda.id);
+  });
+  return pending.length;
+}
+
+/**
+ * Forgets every Google event id, so the next sync recreates the agendas on
+ * whichever calendar is now selected. Used when the target calendar changes:
+ * an event id is only meaningful within the calendar that issued it.
+ */
+export async function detachGcalEvents(): Promise<void> {
+  const db = getDb();
+  await db.agendas
+    .toCollection()
+    .modify({ gcal_event_id: null, gcal_synced_at: null, gcal_conflict: false });
+}
+
 async function queueGcalDelete(agendaId: UUID, eventId: string): Promise<void> {
   const op: GcalOutboxOp = {
     kind: "delete_event",

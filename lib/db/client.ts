@@ -127,6 +127,33 @@ export class FoqusDatabase extends Dexie {
             event.commute_auto = 1;
           });
       });
+
+    /*
+     * v5 moves the Google Calendar configuration into the settings row: which
+     * calendar to write to, whether to write at all, which other calendars
+     * count as busy, and how wide the sync window is. Until now those were
+     * either hardcoded (a calendar literally named "FOQUS") or fixed at ±7/30
+     * days in the route handler.
+     *
+     * No `stores()` change — none of them is indexed — but the upgrade still
+     * has to run, because an existing settings row would otherwise reach the
+     * UI with `undefined` where a boolean is expected and every toggle would
+     * render unchecked and write `undefined` back.
+     */
+    this.version(5).upgrade(async (tx) => {
+      await tx
+        .table("settings")
+        .toCollection()
+        .modify((settings: Record<string, unknown>) => {
+          settings.gcal_enabled ??= true;
+          settings.gcal_calendar_name ??= null;
+          settings.gcal_write_enabled ??= true;
+          settings.gcal_busy_enabled ??= true;
+          settings.gcal_busy_calendar_ids ??= null;
+          settings.gcal_window_past_days ??= 7;
+          settings.gcal_window_future_days ??= 30;
+        });
+    });
   }
 }
 
