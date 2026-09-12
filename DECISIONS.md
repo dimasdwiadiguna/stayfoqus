@@ -2937,3 +2937,45 @@ Not verified against Google itself; no OAuth client exists in this environment.
 What is proved is that the app now shows the string Google is comparing against,
 which is the fact the error page withholds.
 
+### D-152 · The fix is in the message; make it reachable — **Interpreted**
+
+The connection succeeded and the first real call did not: the Calendar API had
+never been enabled on the Cloud project. Creating an OAuth client does not
+enable it, and the consent flow does not need it, so the gap survives every step
+that looks like setup.
+
+This one arrived already diagnosed — D-148's `describeGoogleError` put Google's
+own sentence on the screen, naming the project and the console page. Nothing
+about the message needed improving. What needed improving was that a URL in a
+`<p>` is, on a phone, a paragraph to retype by hand.
+
+So `ErrorNote` renders an upstream error with its `https://` links tappable and
+a **Coba lagi** beneath, and the two places that show Google's errors use it.
+`linkify` is deliberately narrow — `https://` only, never `http://`, never a
+bare hostname, and trailing punctuation goes back to the sentence — because the
+input is an upstream string relayed through our own handler and the smallest
+rule that covers the real case is the one worth having.
+
+The retry matters as much as the link. The failure is transient by nature:
+enable the API, wait for it to propagate, try again. Without it the instruction
+is "reload the app", which on an installed PWA is not an obvious gesture.
+
+`retrying` is owned by the tap, not by the effect (D-071, and the lint rule that
+enforces it): the button sets it, the request clears it, and the automatic first
+attempt leaves it alone because it is not a retry.
+
+This closes the pattern named in D-150. Across D-148 to D-152 the defect was
+always the same — the app knew more than it said — and the last instance is the
+mildest: it said the right thing, in a form that could not be acted on.
+
+### Verification
+
+`npm run lint`, `npm run typecheck` and `npm run build` are clean; the suite is
+green at **380 tests** (374 before, plus 6 for `linkify`, including the device's
+message verbatim and a check that the segments rebuild it exactly).
+
+Rendered in Chromium at 390×844 against a production build, with
+`/api/gcal/status` stubbed to return that error: the console URL is an anchor
+pointing at the full link including its `?project=` query, **Coba lagi** sits
+below it, horizontal overflow 0.
+

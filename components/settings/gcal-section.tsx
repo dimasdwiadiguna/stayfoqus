@@ -3,6 +3,7 @@
 import { Check, RefreshCw } from "lucide-react";
 import * as React from "react";
 
+import { ErrorNote } from "@/components/settings/error-note";
 import { Row, Section, Stepper } from "@/components/settings/section";
 import { Button } from "@/components/ui/button";
 import { CheckIndicator, Input, Switch } from "@/components/ui/field";
@@ -283,13 +284,9 @@ function CalendarPicker({
       {state.status === "loading" ? (
         <p className="text-[13px] text-fg-muted">{t.settings.gcalLoadingCalendars}</p>
       ) : state.status === "failed" ? (
-        <div className="space-y-1">
+        <div className="space-y-1.5">
           <p className="text-[13px] text-danger">{t.settings.gcalCalendarsFailed}</p>
-          {state.reason ? (
-            <p className="font-mono text-[11px] break-words text-fg-subtle">
-              {state.reason}
-            </p>
-          ) : null}
+          {state.reason ? <ErrorNote message={state.reason} /> : null}
         </div>
       ) : (
         <ul className="space-y-0.5">

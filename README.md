@@ -191,6 +191,15 @@ the requirement with the current origin already filled in, under
 
 **APIs & Services → Library → Google Calendar API → Enable.**
 
+Creating the OAuth client does not do this, and the consent flow succeeds
+without it — the failure only appears on the first real call, as
+
+> Google Calendar API has not been used in project … before or it is disabled.
+
+Pengaturan shows that message with its console link tappable and a
+**Coba lagi** beside it, so enabling the API is a tap, a minute's wait for it to
+propagate, and another tap.
+
 ### 2. Configure the consent screen
 
 **APIs & Services → OAuth consent screen.**

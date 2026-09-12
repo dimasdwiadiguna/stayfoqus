@@ -2,6 +2,7 @@
 
 import * as React from "react";
 
+import { ErrorNote } from "@/components/settings/error-note";
 import { GcalSection } from "@/components/settings/gcal-section";
 import { Row, Section } from "@/components/settings/section";
 import { Button } from "@/components/ui/button";
@@ -34,6 +35,15 @@ export function AccountSection() {
   const [email, setEmail] = React.useState<string | null>(null);
   const [status, setStatus] = React.useState<GcalStatus | null>(null);
   const [setupError, setSetupError] = React.useState<string | null>(null);
+  // Bumped by the retry button. The setup effect keys off it, so enabling the
+  // Calendar API in the console is followed by one tap rather than a reload.
+  const [setupAttempt, setSetupAttempt] = React.useState(0);
+  /*
+   * Owned by the tap, not by the effect (D-071): the button sets it, the
+   * request clears it. The *first* attempt is automatic and is not a retry, so
+   * it deliberately leaves this alone.
+   */
+  const [retrying, setRetrying] = React.useState(false);
   const [signInError, setSignInError] = React.useState<string | null>(null);
   const [providers, setProviders] = React.useState<AuthProbe | null>(null);
 
@@ -102,13 +112,15 @@ export function AccountSection() {
         });
       } catch {
         // Offline, or Google unreachable. The picker still works later.
+      } finally {
+        if (!cancelled) setRetrying(false);
       }
     })();
 
     return () => {
       cancelled = true;
     };
-  }, [status?.connected, status?.scopes_ok, settings.gcal_calendar_id]);
+  }, [status?.connected, status?.scopes_ok, settings.gcal_calendar_id, setupAttempt]);
 
   const supabaseReady = isSupabaseConfigured();
 
@@ -169,11 +181,7 @@ export function AccountSection() {
               {t.auth.signIn}
             </Button>
 
-            {signInError ? (
-              <p className="rounded-lg border border-danger/40 bg-danger/10 px-3 py-2 font-mono text-[11px] break-words text-danger">
-                {signInError}
-              </p>
-            ) : null}
+            {signInError ? <ErrorNote message={signInError} /> : null}
 
             <SignInChecklist />
           </div>
@@ -191,9 +199,15 @@ export function AccountSection() {
         ) : null}
 
         {setupError ? (
-          <p className="rounded-lg border border-danger/40 bg-danger/10 px-3 py-2 font-mono text-[11px] break-words text-danger">
-            {setupError}
-          </p>
+          <ErrorNote
+            message={setupError}
+            retrying={retrying}
+            onRetry={() => {
+              setSetupError(null);
+              setRetrying(true);
+              setSetupAttempt((n) => n + 1);
+            }}
+          />
         ) : null}
 
         {status?.connected ? (
