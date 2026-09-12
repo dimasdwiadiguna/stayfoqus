@@ -101,6 +101,11 @@ export const id = {
     signInBlurb:
       "Masuk untuk menyinkronkan data dan menghubungkan Google Calendar. Tanpa masuk, FOQUS tetap jalan penuh di perangkat ini.",
     continueOffline: "Pakai tanpa akun",
+    redirectHelpTitle: "Balik ke localhost setelah login?",
+    redirectHelpBlurb:
+      "Isi dua kolom ini di Supabase → Authentication → URL Configuration. Kalau alamat ini tidak ada di daftar, Supabase mengabaikannya dan memakai Site URL bawaan — http://localhost:3000.",
+    redirectSiteUrl: "Site URL",
+    redirectAllowList: "Redirect URLs",
     providerDisabled:
       "Provider Google belum diaktifkan di proyek Supabase. Buka Authentication → Sign In / Providers → Google, aktifkan, lalu isi Client ID dan Client Secret dari Google Cloud.",
   },

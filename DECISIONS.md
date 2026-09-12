@@ -2844,3 +2844,52 @@ Not verified against a live project with the provider disabled — that state
 exists only in someone's dashboard. The parse is tested against GoTrue's
 documented shape and against six shapes it does not promise.
 
+### D-150 · State the origin the app cannot verify — **Bug in the surfacing, again**
+
+Fourth configuration trap in the same session, and the least legible of them:
+Google authenticated, the password was accepted, and Safari then bounced between
+`localhost` and a blank page. Nothing failed. The only thing wrong was the last
+hop.
+
+Supabase's **Authentication → URL Configuration** ships a new project with
+`Site URL = http://localhost:3000`, and GoTrue treats its Redirect URLs list as
+an allow list: a `redirectTo` that is not on it is **discarded rather than
+refused**, and the Site URL is used instead. FOQUS passes
+`redirectTo: ${location.origin}/settings`, which is correct and stays correct
+across preview deployments — but on a project whose allow list is untouched it
+is thrown away, and a phone is sent to a development server that does not exist.
+
+D-149's move does not work here. That one succeeded because GoTrue publishes
+which providers are enabled; it publishes neither its Site URL nor its allow
+list, so there is nothing to probe and no response to read — by the time anything
+is observable, the browser has already left for `localhost`.
+
+What the app *does* know is its own origin, which is precisely the fact the user
+would otherwise have to assemble by hand, on a phone, from a page of
+documentation. So the sign-in block carries a fold — **"Balik ke localhost
+setelah login?"** — naming the two fields and showing this origin and its
+`/**` glob ready to copy.
+
+Folded by default, per D-132: it is an answer to a question most sessions never
+ask. Not a warning, because nothing here is known to be wrong — the app cannot
+tell a correct configuration from a broken one, and a permanent alert that may
+be false is how alerts stop being read.
+
+The pattern across D-148, D-149 and D-150 is worth naming, because it is the
+same defect wearing three faces: **the app knew more than it said.** Once the
+server's own sentence, once a published capability document, and once a fact the
+client held all along.
+
+### Verification
+
+`npm run lint`, `npm run typecheck` and `npm run build` are clean; the suite is
+unchanged and green at **374 tests** — this touches no rule, which is the point.
+
+Rendered in Chromium at 390×844 against a production build with the Supabase
+keys inlined: the fold sits under the sign-in button, opens to the two fields
+with the origin filled in, and horizontal overflow measures 0.
+
+Not verified against a live project with the Site URL left at its default. That
+state exists only in someone's dashboard, and there is nothing in the app to
+assert against — which is the whole reason this is copy rather than a check.
+
