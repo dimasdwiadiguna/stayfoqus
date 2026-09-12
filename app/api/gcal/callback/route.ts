@@ -1,6 +1,11 @@
 import { NextResponse } from "next/server";
 
-import { currentUserId, exchangeCode, storeCredentials } from "@/lib/gcal/server";
+import {
+  currentUserId,
+  exchangeCode,
+  saveNewCredentials,
+} from "@/lib/gcal/server";
+import { describeGoogleError } from "@/lib/gcal/scopes";
 
 export const dynamic = "force-dynamic";
 
@@ -14,31 +19,33 @@ export async function GET(request: Request) {
   const returnTo = decodeURIComponent(url.searchParams.get("state") ?? "/settings");
   const target = new URL(returnTo, site);
 
-  const error = url.searchParams.get("error");
-  if (error) {
-    target.searchParams.set("gcal", `error:${error}`);
+  /*
+   * Failures leave with their reason attached. Until now they left with a code
+   * — `error:exchange_failed` — that nothing in the app read, so a connect that
+   * failed looked exactly like one that had never been attempted: back on
+   * Pengaturan, still disconnected, no explanation anywhere.
+   */
+  const fail = (reason: string) => {
+    target.searchParams.set("gcal_error", reason.slice(0, 400));
     return NextResponse.redirect(target);
-  }
+  };
+
+  const error = url.searchParams.get("error");
+  if (error) return fail(error);
 
   const code = url.searchParams.get("code");
-  if (!code) {
-    target.searchParams.set("gcal", "error:missing_code");
-    return NextResponse.redirect(target);
-  }
+  if (!code) return fail("missing_code");
 
   const userId = await currentUserId();
-  if (!userId) {
-    target.searchParams.set("gcal", "error:not_signed_in");
-    return NextResponse.redirect(target);
-  }
+  if (!userId) return fail("not_signed_in");
 
   try {
     const tokens = await exchangeCode(code);
-    await storeCredentials(userId, tokens);
+    await saveNewCredentials(userId, tokens);
     target.searchParams.set("gcal", "connected");
   } catch (err) {
     console.error("[foqus] gcal callback failed", err);
-    target.searchParams.set("gcal", "error:exchange_failed");
+    return fail(describeGoogleError(err));
   }
 
   return NextResponse.redirect(target);
