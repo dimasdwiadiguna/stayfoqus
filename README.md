@@ -156,9 +156,36 @@ Pengaturan now asks GoTrue's public `/auth/v1/settings` document before it
 offers the button, so a project with the provider still off says so in
 Indonesian instead of navigating you into that JSON.
 
+### 4. Tell Supabase where your app lives
+
+**Authentication → URL Configuration.** A new project ships with
+`Site URL = http://localhost:3000`, and this is the setting that decides where
+the browser lands *after* Google has authenticated.
+
+| Field | Value |
+|---|---|
+| Site URL | `https://<your-app>` — exact origin, https, no trailing slash |
+| Redirect URLs | `https://<your-app>/**`, plus `http://localhost:3000/**` for dev |
+
+The allow list takes glob patterns, and it is not advisory: FOQUS passes
+`redirectTo: <this origin>/settings`, and a `redirectTo` that is **not** on the
+list is discarded rather than refused — GoTrue silently falls back to the Site
+URL. Leave the default in place and a successful sign-in on your phone ends at
+`http://localhost:3000/settings`, which on a phone is nothing at all. The login
+worked; only the last hop was wrong, which is what makes this one hard to read.
+
+Nothing in the app can detect this — GoTrue publishes which providers are
+enabled, but not its Site URL or its allow list — so Pengaturan instead states
+the requirement with the current origin already filled in, under
+**"Balik ke localhost setelah login?"** beside the sign-in button.
+
 ---
 
 ## Google Cloud setup (optional — enables Google Calendar)
+
+> One OAuth client serves both purposes, and it needs **two** unrelated redirect
+> URIs: `https://<project-ref>.supabase.co/auth/v1/callback` for sign-in, and
+> `https://<your-app>/api/gcal/callback` for the calendar connection.
 
 ### 1. Enable the API
 

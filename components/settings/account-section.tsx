@@ -5,6 +5,7 @@ import * as React from "react";
 import { GcalSection } from "@/components/settings/gcal-section";
 import { Row, Section } from "@/components/settings/section";
 import { Button } from "@/components/ui/button";
+import { Disclosure } from "@/components/ui/disclosure";
 import { updateSettings, useSettings } from "@/hooks/use-settings";
 import { id as t } from "@/lib/i18n/id";
 import { getSupabase } from "@/lib/supabase/client";
@@ -171,6 +172,8 @@ export function AccountSection() {
                 {signInError}
               </p>
             ) : null}
+
+            <SignInChecklist />
           </div>
         )}
 
@@ -229,5 +232,46 @@ export function AccountSection() {
 
       <GcalSection connected={status?.connected === true && status.scopes_ok !== false} />
     </>
+  );
+}
+
+/**
+ * What Supabase has to know about *this* origin before sign-in can come back.
+ *
+ * A new project ships with Site URL set to `http://localhost:3000`, and GoTrue
+ * falls back to it whenever the `redirectTo` it is handed is not on the
+ * Redirect URLs allow list. The OAuth round trip therefore succeeds — Google
+ * authenticates, the code is issued — and then the browser is sent to
+ * `localhost`, where a phone has nothing listening. Nothing in the app is
+ * wrong, and nothing in the app can detect it either: GoTrue publishes which
+ * providers are enabled, but not its Site URL or its allow list.
+ *
+ * So this states the requirement instead, with the origin already filled in —
+ * the one fact the user would otherwise have to assemble by hand, on a phone,
+ * from a page of documentation.
+ */
+function SignInChecklist() {
+  // `location` is read in render rather than from an effect (D-071): nothing
+  // here is server-rendered, because `BootGate` holds the shell until IndexedDB
+  // is ready on the client.
+  const origin = typeof window === "undefined" ? "" : window.location.origin;
+
+  return (
+    <Disclosure label={t.auth.redirectHelpTitle} contentClassName="space-y-1.5 pb-1">
+      <p className="text-[11px] leading-relaxed text-fg-subtle">
+        {t.auth.redirectHelpBlurb}
+      </p>
+      <dl className="space-y-1.5">
+        <div>
+          <dt className="text-[11px] text-fg-muted">{t.auth.redirectSiteUrl}</dt>
+          <dd className="font-mono text-[11px] break-all text-fg">{origin}</dd>
+        </div>
+        <div>
+          <dt className="text-[11px] text-fg-muted">{t.auth.redirectAllowList}</dt>
+          {/* In one string: bare `/**` after an expression reads as a comment in JSX. */}
+          <dd className="font-mono text-[11px] break-all text-fg">{`${origin}/**`}</dd>
+        </div>
+      </dl>
+    </Disclosure>
   );
 }
