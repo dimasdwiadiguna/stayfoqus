@@ -77,34 +77,91 @@ async function readCredentials(userId: string): Promise<GoogleCredentials | null
   return (data as GoogleCredentials | null) ?? null;
 }
 
-export async function storeCredentials(
+interface TokenResponse {
+  refresh_token?: string | null;
+  access_token: string;
+  expires_in: number;
+  scope?: string;
+}
+
+function accessFields(input: TokenResponse): Record<string, unknown> {
+  return {
+    access_token: input.access_token,
+    expires_at: new Date(Date.now() + input.expires_in * 1000).toISOString(),
+    scope: input.scope ?? null,
+    updated_at: new Date().toISOString(),
+  };
+}
+
+/**
+ * Stores the tokens from a completed consent.
+ *
+ * Only this path ever has a refresh token to write, which is why it is the only
+ * path allowed to create the row.
+ */
+export async function saveNewCredentials(
   userId: string,
-  input: {
-    refresh_token?: string | null;
-    access_token: string;
-    expires_in: number;
-    scope?: string;
-  },
+  input: TokenResponse,
 ): Promise<void> {
   const service = getServiceSupabase();
   if (!service) throw new GcalError("Supabase service role is not configured", 500);
 
-  const expiresAt = new Date(Date.now() + input.expires_in * 1000).toISOString();
-  const patch: Record<string, unknown> = {
-    user_id: userId,
-    access_token: input.access_token,
-    expires_at: expiresAt,
-    scope: input.scope ?? null,
-    updated_at: new Date().toISOString(),
-  };
-  // Google only returns a refresh token on the first consent; a re-auth without
-  // one must not wipe the token we already hold.
-  if (input.refresh_token) patch.refresh_token = input.refresh_token;
+  if (!input.refresh_token) {
+    /*
+     * Google issues a refresh token only when it feels like it — and never on a
+     * re-consent that it decides is redundant. `/api/gcal/connect` asks for
+     * `access_type=offline` with `prompt=consent` precisely to force one, so
+     * arriving here without it means the grant is unusable: there would be
+     * nothing to refresh with once the hour is up.
+     */
+    throw new GcalError(
+      "Google returned no refresh token. Remove FOQUS from your Google account " +
+        "permissions and connect again.",
+      400,
+    );
+  }
 
-  const { error } = await service
-    .from("google_credentials")
-    .upsert(patch, { onConflict: "user_id" });
+  const { error } = await service.from("google_credentials").upsert(
+    { user_id: userId, refresh_token: input.refresh_token, ...accessFields(input) },
+    { onConflict: "user_id" },
+  );
   if (error) throw new GcalError(error.message, 500);
+}
+
+/**
+ * Records a refreshed access token against credentials that already exist.
+ *
+ * An UPDATE, never an upsert. A refresh response carries no refresh token, and
+ * `INSERT … ON CONFLICT DO UPDATE` does **not** save you from that: Postgres
+ * checks NOT NULL on the row it is about to insert *before* it arbitrates the
+ * conflict, so the statement fails with
+ *
+ *   null value in column "refresh_token" … violates not-null constraint
+ *
+ * even when the row is there and the UPDATE branch would have been fine. The
+ * previous code omitted the column and trusted the conflict clause to leave it
+ * alone; the intent was right and the mechanism could not deliver it. Every
+ * connection worked for exactly one hour — until the first access token expired
+ * — and then every Google call failed.
+ */
+export async function saveRefreshedAccessToken(
+  userId: string,
+  input: TokenResponse,
+): Promise<void> {
+  const service = getServiceSupabase();
+  if (!service) throw new GcalError("Supabase service role is not configured", 500);
+
+  const { data, error } = await service
+    .from("google_credentials")
+    .update(accessFields(input))
+    .eq("user_id", userId)
+    .select("user_id");
+
+  if (error) throw new GcalError(error.message, 500);
+  if (!data || data.length === 0) {
+    // Disconnected between reading the credentials and refreshing them.
+    throw new GcalError("Google Calendar is not connected", 412);
+  }
 }
 
 export async function disconnect(userId: string): Promise<void> {
@@ -151,7 +208,7 @@ async function accessTokenFor(userId: string): Promise<string> {
     expires_in: number;
     scope?: string;
   };
-  await storeCredentials(userId, json);
+  await saveRefreshedAccessToken(userId, json);
   return json.access_token;
 }
 

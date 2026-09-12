@@ -3072,3 +3072,84 @@ Not verified against Google itself. `sameInstant` is proved against the exact
 pair of spellings Google and FOQUS produce, and `listBusyEvents` against its
 types; the first real pull after deploy is what confirms the shape.
 
+### D-155 · `ON CONFLICT DO UPDATE` does not spare you the NOT NULL check — **Bug, proved against Postgres**
+
+From the device, in the calendar picker:
+
+```
+null value in column "refresh_token" of relation "google_credentials"
+violates not-null constraint
+```
+
+`storeCredentials` served two callers with one statement. The consent callback
+has a refresh token; a *token refresh* does not, because Google issues one only
+at consent. The code omitted the column in that second case, with the comment
+"a re-auth without one must not wipe the token we already hold", and trusted
+`upsert` to leave it alone.
+
+It cannot. Postgres validates NOT NULL on the tuple it is about to insert
+**before** it arbitrates the conflict, so the statement fails even when the row
+exists and the UPDATE branch would have been perfectly fine. Reproduced in a
+throwaway Postgres 16 against the real table definition:
+
+```
+insert into google_credentials (user_id, access_token, expires_at, scope, updated_at)
+values ('1111…', 'new-access', now(), 'a b', now())
+on conflict (user_id) do update set access_token = excluded.access_token, …;
+
+ERROR:  null value in column "refresh_token" … violates not-null constraint
+DETAIL:  Failing row contains (1111…, null, new-access, …).
+
+update google_credentials set access_token = 'fixed-access', … where user_id = '1111…';
+UPDATE 1
+```
+
+The blast radius is the whole integration, on a timer: `accessTokenFor`
+refreshes when the access token is within a minute of expiry, so **every
+connection worked for exactly one hour and then every Google call failed.** It
+survived the earlier sessions only because each one reconnected and got a fresh
+hour.
+
+The fix is not a smarter statement, it is two functions that cannot be confused:
+`saveNewCredentials` always has a refresh token and is the only path allowed to
+create the row; `saveRefreshedAccessToken` is a plain `UPDATE … WHERE user_id`
+that can only ever touch a row that already exists, and answers 412 if none did
+so a disconnect mid-refresh says "reconnect" rather than inventing a row.
+
+`saveNewCredentials` also refuses a consent that came back **without** a refresh
+token instead of storing a grant that is unusable an hour later. `/api/gcal/connect`
+asks for `access_type=offline` with `prompt=consent` precisely to force one, so
+arriving without it is a real failure and now says so.
+
+**No unit test.** The defect is SQL semantics, not logic; a test against a mocked
+client would assert the mock. The proof is the transcript above, and the durable
+guard is the shape: one function that always has the token, one that can never
+insert.
+
+### D-156 · A connect that failed looked exactly like one never attempted — **Bug, same family**
+
+`/api/gcal/callback` had been setting `?gcal=error:exchange_failed` on the way
+back, and **nothing in the app read that parameter**. Every failed connect
+therefore ended on Pengaturan, still disconnected, with no explanation anywhere
+— which is how D-155 stayed invisible through several sessions.
+
+The callback now carries the reason itself, through `describeGoogleError` and
+capped at 400 characters, and the Account section renders it in the same
+`ErrorNote` as every other Google failure, then takes the parameter out of the
+address bar so a reload does not resurrect a failure that is long fixed.
+
+No retry button on that one: it records an attempt that is already over, and the
+connect button is a few rows below it.
+
+### Verification
+
+`npm run lint`, `npm run typecheck` and `npm run build` are clean; **385 tests**,
+unchanged — neither fix touches a rule.
+
+The SQL behaviour was reproduced and then re-tested fixed, in Postgres 16 against
+the same table definition as `0001_init.sql`, transcript above.
+
+The connect failure was driven in Chromium at 390×844 against a production build:
+arriving at `/settings?gcal_error=…` shows the sentence, and the URL is
+`/settings` by the time the page settles. Horizontal overflow 0.
+

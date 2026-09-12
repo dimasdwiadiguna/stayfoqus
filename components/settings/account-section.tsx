@@ -45,6 +45,16 @@ export function AccountSection() {
    */
   const [retrying, setRetrying] = React.useState(false);
   const [signInError, setSignInError] = React.useState<string | null>(null);
+  /*
+   * Why the last connect attempt failed, handed over by `/api/gcal/callback` in
+   * the URL. Seeded during render rather than pushed from an effect (D-071):
+   * nothing here is server-rendered, because BootGate holds the shell until the
+   * client is ready.
+   */
+  const [connectError] = React.useState<string | null>(() => {
+    if (typeof window === "undefined") return null;
+    return new URL(window.location.href).searchParams.get("gcal_error");
+  });
   const [providers, setProviders] = React.useState<AuthProbe | null>(null);
 
   React.useEffect(() => {
@@ -122,6 +132,18 @@ export function AccountSection() {
     };
   }, [status?.connected, status?.scopes_ok, settings.gcal_calendar_id, setupAttempt]);
 
+  /*
+   * The reason has been read into state; take it out of the address bar so a
+   * reload or a shared link does not resurrect a failure that is long fixed.
+   */
+  React.useEffect(() => {
+    if (!connectError || typeof window === "undefined") return;
+    const url = new URL(window.location.href);
+    if (!url.searchParams.has("gcal_error")) return;
+    url.searchParams.delete("gcal_error");
+    window.history.replaceState(null, "", url.toString());
+  }, [connectError]);
+
   const supabaseReady = isSupabaseConfigured();
 
   return (
@@ -197,6 +219,11 @@ export function AccountSection() {
             </Button>
           </div>
         ) : null}
+
+        {/* No retry button: this records a connect that already failed, and the
+            connect button itself is a few rows down. A reload clears it, because
+            the effect above has already taken it out of the URL. */}
+        {connectError ? <ErrorNote message={connectError} /> : null}
 
         {setupError ? (
           <ErrorNote
