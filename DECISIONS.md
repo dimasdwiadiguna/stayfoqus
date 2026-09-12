@@ -2795,3 +2795,52 @@ environment, so D-147's fix is proved against Google's published scope table and
 its own tests, not against a live 403 becoming a 200. That first connect remains
 the test that matters.
 
+### D-149 · Ask GoTrue what it supports before offering the button — **Bug in the surfacing, not in the flow**
+
+Third report from the same session, and the third time a configuration problem
+reached the user as machine output: clicking **Masuk dengan Google** left the app
+entirely and landed on
+
+```json
+{"code":400,"error_code":"validation_failed",
+ "msg":"Unsupported provider: provider is not enabled"}
+```
+
+The cause was a dashboard setting — the Google provider was never switched on in
+the Supabase project — and the fix for *that* is documentation, which the README
+now spells out as three separate steps because only the first is a toggle.
+
+The part worth a decision is why the app could not say so. `signInWithOAuth`
+builds the authorize URL on the client and then navigates to it; there is no
+request for it to fail on, so its `error` return is empty and the first thing
+that knows the provider is disabled is GoTrue, by which point the browser has
+already left. D-148's approach — show the server's own sentence — does not reach
+here, because there is no response left to read.
+
+So the app asks first. GoTrue publishes its configuration at
+`/auth/v1/settings`, including an `external` map of which providers are on.
+`probeAuthProviders` reads it when the Account section mounts, and a project with
+Google off gets a warning naming the exact dashboard screen, with the button
+disabled — offering a button whose only outcome is a page of JSON is worse than
+not offering it.
+
+Two deliberate limits:
+
+- **An unreachable probe does not disable anything.** Being unable to ask is not
+  evidence of a problem; the button stays live and the user can try.
+- **A shape GoTrue did not promise reads as "off", not as a crash.** The result
+  only decides whether to warn, and an unnecessary warning is cheaper than an
+  exception in Settings.
+
+`signInWithOAuth`'s own `error` is now also surfaced, for the cases where
+supabase-js does refuse before redirecting.
+
+### Verification
+
+`npm run lint`, `npm run typecheck` and `npm run build` are clean; the suite is
+green at **374 tests** (370 before, plus 4 for reading the settings document).
+
+Not verified against a live project with the provider disabled — that state
+exists only in someone's dashboard. The parse is tested against GoTrue's
+documented shape and against six shapes it does not promise.
+

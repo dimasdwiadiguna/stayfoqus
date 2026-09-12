@@ -101,6 +101,8 @@ export const id = {
     signInBlurb:
       "Masuk untuk menyinkronkan data dan menghubungkan Google Calendar. Tanpa masuk, FOQUS tetap jalan penuh di perangkat ini.",
     continueOffline: "Pakai tanpa akun",
+    providerDisabled:
+      "Provider Google belum diaktifkan di proyek Supabase. Buka Authentication → Sign In / Providers → Google, aktifkan, lalu isi Client ID dan Client Secret dari Google Cloud.",
   },
 
   tasks: {
