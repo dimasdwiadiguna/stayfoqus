@@ -22,9 +22,15 @@ npm run dev          # http://localhost:3000
 ```
 
 **No configuration is required to run the app.** With no environment variables
-set, FOQUS runs in local-only mode: IndexedDB is the database and every feature
-except cross-device sync and Google Calendar works normally. Settings →
-Sinkronisasi says so plainly.
+set, FOQUS runs in local-only mode: IndexedDB is the database, the access gate
+is open, and every feature except cross-device sync and Google Calendar works
+normally. Settings → Sinkronisasi says so plainly.
+
+Configuration splits along one line, deliberately: the environment holds
+*credentials and addresses*; the app holds *preferences*. Which calendar
+agendas are written to, whether they are written at all, which calendars count
+as busy and how wide the sync window is are all set in **Pengaturan → Google
+Calendar**, stored in the settings row, and synced between devices.
 
 | Script | What it does |
 |---|---|
@@ -103,13 +109,23 @@ RLS hides from every client-side role.
 ### 2. Run the migration
 
 ```bash
-supabase db push          # or paste supabase/migrations/0001_init.sql into the SQL editor
+supabase db push          # or paste supabase/migrations/*.sql, in order, into the SQL editor
 ```
 
-This creates the eight synced tables plus `google_credentials`, enables RLS on
-all of them, and adds an owner-only policy per table. `google_credentials`
+`0001_init.sql` creates the synced tables plus `google_credentials`, enables RLS
+on all of them, and adds an owner-only policy per table. `google_credentials`
 deliberately gets **no policy at all**, so `anon` and `authenticated` match
-nothing and can see nothing.
+nothing and can see nothing. `0002`–`0005` add the agenda chain, events, places
+and the in-app Google Calendar configuration; run them in order.
+
+**Pengaturan → Sinkronisasi → "Periksa koneksi database"** answers whether this
+worked, and distinguishes the three ways it usually has not: env vars missing,
+migrations not run, or nobody signed in so RLS hides every row.
+
+Data created before the first sign-in belongs to a local sentinel user. Signing
+in hands it to the account, queues it, and says how many rows moved — without
+that step the RLS policy would reject every one of them and the outbox would
+park them as `blocked`.
 
 ### 3. Enable Google as an auth provider
 
@@ -167,8 +183,52 @@ Sign in with Google first, then **Pengaturan → Hubungkan Google Calendar**.
 The calendar scopes are requested *after* login, as incremental authorization
 (§6.1) — the login itself asks for nothing beyond identity.
 
-On first connect FOQUS finds or creates a secondary calendar named **FOQUS**
-and stores its id. It never writes to the primary calendar.
+On first connect FOQUS finds or creates a secondary calendar named **FOQUS** so
+there is somewhere to write immediately. Everything after that is yours to set,
+in **Pengaturan → Google Calendar**:
+
+| Setting | What it does |
+|---|---|
+| Sinkronisasi aktif | Master switch. Off means no pull, no write, no busy cache. |
+| Kalender tujuan | Pick any writable calendar, or create a new one by name. The primary is listed but refused — §6.1, enforced server-side as well as in the picker. |
+| Tulis agenda ke Google | The §6.2 write path on its own. Off leaves the read half running. |
+| Kalender lain sebagai sibuk | Whether other calendars block the scheduler, and which ones. |
+| Jendela sinkron | How far back and forward Google is read. Defaults to the −7/+30 days of §4.10. |
+
+Changing the target calendar forgets every stored Google event id and the sync
+token, so the next sync recreates the agendas where they now belong. Events left
+on the old calendar are not deleted — that would mean writing to a calendar you
+have just said to stop using.
+
+---
+
+## Access gate (optional — recommended for a public deployment)
+
+FOQUS is a single-user app on a public URL. Set one variable and the whole
+deployment stands behind a password:
+
+```bash
+FOQUS_ACCESS_PASSWORD=something-long-and-yours
+```
+
+- `middleware.ts` checks every request. A locked visitor gets a redirect to
+  `/gate`, or a `401` for anything under `/api/` — never a page with the data
+  already in it.
+- Unlocking sets an `HttpOnly`, `SameSite=Lax`, `Secure` cookie carrying an
+  expiry and an HMAC over it. The signing key is the password itself, so
+  **changing the password signs every device out**.
+- The session lasts 30 days. **Pengaturan → Akses → "Kunci sekarang"** ends it
+  on this device.
+- Wrong guesses are throttled per IP, 8 per 15 minutes. That is per serverless
+  instance and forgotten on a cold start — it turns a script into a nuisance,
+  it does not make a short password safe. Pick a long one.
+- Leave the variable empty and the gate is off, which is what keeps
+  `npm run dev` frictionless.
+
+An already-installed PWA keeps working offline while the deployment is locked,
+because the service worker answers from its precache and never reaches the
+middleware. That is the intended trade: the gate protects the deployment, not
+the device.
 
 ---
 
@@ -178,7 +238,8 @@ and stores its id. It never writes to the primary calendar.
 2. Framework preset: **Next.js**. The default build command is correct — the
    `build` script already chains the service worker step.
 3. Add the environment variables from `.env.example`. Set
-   `NEXT_PUBLIC_SITE_URL` to the deployment's own origin.
+   `NEXT_PUBLIC_SITE_URL` to the deployment's own origin, and set
+   `FOQUS_ACCESS_PASSWORD` unless you want the URL to be the only secret.
 4. Add `https://<your-app>.vercel.app/api/gcal/callback` to the Google OAuth
    client's redirect URIs, and the Supabase callback URL alongside it.
 
@@ -205,6 +266,10 @@ The suite covers what `BRIEF.md` §13 asks for:
 - the ISO-week and timezone boundary, including a DST transition
 - todo hierarchy, dependency cycles and derived counters
 - the §5.9 agenda↔todo coupling rule and the §9 streak
+- the access gate's token: expiry, forgery, and rotation revoking old sessions
+- claiming local rows for the account at first sign-in
+- reading the Google configuration from a settings row older than the migration
+  that added it
 
 ---
 

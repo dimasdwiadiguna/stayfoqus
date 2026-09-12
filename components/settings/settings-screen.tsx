@@ -4,9 +4,11 @@ import { useLiveQuery } from "dexie-react-hooks";
 import * as React from "react";
 import { useSyncExternalStore } from "react";
 
+import { AccessSection } from "@/components/settings/access-section";
 import { AccountSection } from "@/components/settings/account-section";
 import { AvailabilityEditor } from "@/components/settings/availability-editor";
 import { CategoryEditor } from "@/components/settings/category-editor";
+import { ConnectionCheck } from "@/components/settings/connection-check";
 import { LocationSection } from "@/components/settings/location-section";
 import { Row, Section, Stepper } from "@/components/settings/section";
 import { TimeBlockEditor } from "@/components/settings/time-block-editor";
@@ -60,6 +62,7 @@ export function SettingsScreen() {
       <div className="pb-24">
         <ScreenTitle title={t.settings.title} />
         <AccountSection />
+        <AccessSection />
         <AvailabilityEditor />
         <LocationSection />
         <BufferSection />
@@ -593,6 +596,8 @@ function SyncSection() {
           </Button>
         </div>
       ) : null}
+
+      <ConnectionCheck />
 
       <Button block onClick={() => void forceFullResync()}>
         {t.sync.forceResync}

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import {
+  FOQUS_CALENDAR_NAME,
   GcalError,
   currentUserId,
   disconnect,
@@ -39,7 +40,10 @@ export async function POST() {
 
   try {
     const calendarId = await findOrCreateFoqusCalendar(userId);
-    return NextResponse.json({ calendar_id: calendarId });
+    return NextResponse.json({
+      calendar_id: calendarId,
+      calendar_name: FOQUS_CALENDAR_NAME,
+    });
   } catch (err) {
     const status = err instanceof GcalError ? err.status : 500;
     return NextResponse.json({ error: String(err) }, { status });

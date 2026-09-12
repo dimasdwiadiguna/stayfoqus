@@ -63,6 +63,34 @@ export const id = {
     lastPulled: "Terakhir ditarik",
     never: "Belum pernah",
     localOnly: "Mode lokal. Supabase belum dikonfigurasi.",
+    adopted: (n: number) => `${n} data lokal dipindahkan ke akunmu.`,
+    check: "Periksa koneksi database",
+    checking: "Memeriksa…",
+    checkOk: (n: number) =>
+      `Terhubung. Tabel terbaca, ${n} baris pengaturan terlihat untuk akun ini.`,
+    checkNoEnv:
+      "Supabase belum dikonfigurasi. Isi NEXT_PUBLIC_SUPABASE_URL dan NEXT_PUBLIC_SUPABASE_ANON_KEY.",
+    checkSignedOut: "Belum masuk. Masuk dulu di bagian Akun, lalu periksa lagi.",
+    checkNoTables:
+      "Tabel belum ada. Jalankan migrasi di supabase/migrations lewat SQL editor atau Supabase CLI.",
+    checkFailed: "Query ditolak.",
+  },
+
+  gate: {
+    title: "Terkunci",
+    blurb: "Masukkan kata sandi untuk membuka FOQUS di perangkat ini.",
+    password: "Kata sandi",
+    unlock: "Buka",
+    checking: "Memeriksa\u2026",
+    wrong: "Kata sandi salah.",
+    throttled: "Terlalu banyak percobaan. Coba lagi beberapa menit lagi.",
+    failed: "Tidak bisa memeriksa. Periksa koneksi lalu coba lagi.",
+    lockNow: "Kunci sekarang",
+    lockBlurb:
+      "Perangkat ini terbuka selama 30 hari. Kunci sekarang kalau kamu meminjamkannya.",
+    disabled:
+      "Gerbang kata sandi belum aktif. Isi FOQUS_ACCESS_PASSWORD di environment deployment.",
+    sectionTitle: "Akses",
   },
 
   auth: {
@@ -466,11 +494,43 @@ export const id = {
 
     gcalConnect: "Hubungkan Google Calendar",
     gcalDisconnect: "Putuskan",
-    gcalConnected: (name: string) => `Terhubung · kalender "${name}"`,
+    gcalConnected: "Terhubung",
     gcalNotConnected: "Belum terhubung.",
     gcalBlurb:
-      "FOQUS membuat kalender terpisah bernama “FOQUS” dan tidak pernah menulis ke kalender utama.",
+      "Semua pengaturan Google Calendar ada di sini. Kalender utama tidak pernah ditulisi.",
+    gcalNotConfigured:
+      "Google OAuth belum disiapkan di deployment ini (GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET).",
     gcalSyncNow: "Sinkronkan sekarang",
+
+    sectionGcal: "Google Calendar",
+    gcalEnabled: "Sinkronisasi aktif",
+    gcalEnabledHint: "Mati berarti tidak ada tarik, tulis, maupun cache sibuk.",
+    gcalTarget: "Kalender tujuan",
+    gcalTargetNone: "Belum dipilih",
+    gcalChange: "Ubah",
+    gcalChoose: "Pilih kalender",
+    gcalLoadingCalendars: "Memuat kalender…",
+    gcalCalendarsFailed: "Tidak bisa memuat daftar kalender.",
+    gcalPrimaryBlocked: "Kalender utama — tidak bisa dipakai",
+    gcalReadOnly: "Hanya bisa dibaca",
+    gcalCreateNew: "Buat kalender baru",
+    gcalNewName: "Nama kalender baru",
+    gcalCreate: "Buat",
+    gcalSwitched: (name: string) =>
+      `Agenda sekarang ditulis ke “${name}”. Event lama di kalender sebelumnya tidak dihapus.`,
+    gcalWrite: "Tulis agenda ke Google",
+    gcalWriteHint: "Hanya agenda berstatus terjadwal, selesai, atau sebagian.",
+    gcalBusy: "Kalender lain sebagai sibuk",
+    gcalBusyHint: "Jam yang sudah terisi di kalender lain tidak akan dialokasikan.",
+    gcalBusySources: "Kalender yang dihitung sibuk",
+    gcalBusyAll: "Semua kalender lain",
+    gcalWindow: "Jendela sinkron",
+    gcalWindowHint: "Seberapa jauh ke belakang dan ke depan Google dibaca.",
+    gcalWindowPast: "Ke belakang",
+    gcalWindowFuture: "Ke depan",
+    gcalDays: "hari",
+    gcalQueued: (n: number) =>
+      n === 0 ? "Semua agenda sudah ada di Google." : `${n} agenda dikirim ke Google.`,
 
     availabilityBlurb:
       "Alokasi otomatis tidak pernah menaruh apa pun di luar jam ini.",

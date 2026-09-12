@@ -1,7 +1,11 @@
 import "server-only";
 
 import { getServerSupabase, getServiceSupabase } from "@/lib/supabase/server";
-import type { GcalBusyInterval, GcalPullEvent } from "@/lib/gcal/types";
+import type {
+  GcalBusyInterval,
+  GcalCalendar,
+  GcalPullEvent,
+} from "@/lib/gcal/types";
 
 /**
  * §3.3 — all Google Calendar access is server-side.
@@ -214,6 +218,55 @@ interface CalendarListEntry {
   id: string;
   summary: string;
   primary?: boolean;
+  accessRole?: string;
+  deleted?: boolean;
+}
+
+const WRITABLE_ROLES = new Set(["owner", "writer"]);
+
+async function calendarList(userId: string): Promise<CalendarListEntry[]> {
+  const list = await googleJson<{ items?: CalendarListEntry[] }>(
+    userId,
+    "/users/me/calendarList?maxResults=250",
+  );
+  return (list.items ?? []).filter((entry) => !entry.deleted);
+}
+
+/**
+ * Every calendar the account can see, for the picker in Pengaturan.
+ *
+ * The primary is included but flagged: §6.1 forbids *writing* to it, and the
+ * UI needs to say why rather than silently omitting the calendar the user
+ * thinks of as theirs.
+ */
+export async function listCalendars(userId: string): Promise<GcalCalendar[]> {
+  return (await calendarList(userId)).map((entry) => ({
+    id: entry.id,
+    summary: entry.summary ?? entry.id,
+    primary: entry.primary === true,
+    writable: entry.primary !== true && WRITABLE_ROLES.has(entry.accessRole ?? ""),
+  }));
+}
+
+/** Creates a secondary calendar with the given name and returns it. */
+export async function createCalendar(
+  userId: string,
+  name: string,
+): Promise<GcalCalendar> {
+  const created = await googleJson<{ id: string; summary?: string }>(
+    userId,
+    "/calendars",
+    {
+      method: "POST",
+      body: JSON.stringify({ summary: name, description: "Agenda FOQUS" }),
+    },
+  );
+  return {
+    id: created.id,
+    summary: created.summary ?? name,
+    primary: false,
+    writable: true,
+  };
 }
 
 /**
@@ -222,24 +275,44 @@ interface CalendarListEntry {
  * happens to have named their primary calendar "FOQUS" still gets a new one.
  */
 export async function findOrCreateFoqusCalendar(userId: string): Promise<string> {
-  const list = await googleJson<{ items?: CalendarListEntry[] }>(
-    userId,
-    "/users/me/calendarList?minAccessRole=writer&maxResults=250",
-  );
+  const entries = await calendarList(userId);
 
-  const existing = list.items?.find(
-    (c) => !c.primary && c.summary === FOQUS_CALENDAR_NAME,
+  const existing = entries.find(
+    (c) =>
+      !c.primary &&
+      c.summary === FOQUS_CALENDAR_NAME &&
+      WRITABLE_ROLES.has(c.accessRole ?? ""),
   );
   if (existing) return existing.id;
 
-  const created = await googleJson<{ id: string }>(userId, "/calendars", {
-    method: "POST",
-    body: JSON.stringify({
-      summary: FOQUS_CALENDAR_NAME,
-      description: "Agenda FOQUS",
-    }),
-  });
-  return created.id;
+  return (await createCalendar(userId, FOQUS_CALENDAR_NAME)).id;
+}
+
+/**
+ * The calendar a request should act on.
+ *
+ * The client sends whatever the user picked in Pengaturan; this is the one
+ * place that decides whether it may be honoured. A calendar that has since been
+ * deleted, unshared, or downgraded to read-only falls back to find-or-create
+ * rather than failing, so a sync never stops on a choice made months ago. The
+ * *primary* calendar is refused outright — §6.1 is explicit, and silently
+ * writing an agenda into someone's main calendar is not a recoverable mistake.
+ */
+export async function resolveCalendar(
+  userId: string,
+  requested: string | null | undefined,
+): Promise<string> {
+  if (!requested) return findOrCreateFoqusCalendar(userId);
+
+  const entries = await calendarList(userId);
+  const match = entries.find((entry) => entry.id === requested);
+
+  if (match?.primary) {
+    throw new GcalError("Refusing to write to the primary calendar", 400);
+  }
+  if (match && WRITABLE_ROLES.has(match.accessRole ?? "")) return match.id;
+
+  return findOrCreateFoqusCalendar(userId);
 }
 
 /* ------------------------------------------------------------------ */
@@ -342,13 +415,43 @@ function toPullEvent(event: GoogleEvent): GcalPullEvent {
 }
 
 /**
+ * The rolling window a full resync and the busy cache cover.
+ *
+ * §4.10 fixes the defaults at −7/+30 days; they are parameters rather than
+ * constants because the user sets them in Pengaturan — someone who plans a
+ * quarter ahead needs more than thirty days of busy intervals for the
+ * allocator to be telling the truth.
+ */
+export interface GcalWindow {
+  past_days: number;
+  future_days: number;
+}
+
+export const DEFAULT_WINDOW: GcalWindow = { past_days: 7, future_days: 30 };
+
+const DAY_MS = 86_400_000;
+
+function windowBounds(window: GcalWindow): { timeMin: string; timeMax: string } {
+  const now = Date.now();
+  // Clamped, because these arrive from a settings row that syncs between
+  // devices and an out-of-range value would make Google reject every call.
+  const past = Math.min(Math.max(window.past_days, 0), 365);
+  const future = Math.min(Math.max(window.future_days, 1), 365);
+  return {
+    timeMin: new Date(now - past * DAY_MS).toISOString(),
+    timeMax: new Date(now + future * DAY_MS).toISOString(),
+  };
+}
+
+/**
  * §6.3: incremental sync with a stored `syncToken`; on 410 (token invalidated)
- * fall back to a full resync of the −7/+30 day window.
+ * fall back to a full resync of the configured window.
  */
 export async function pullFoqusCalendar(
   userId: string,
   calendarId: string,
   syncToken: string | null,
+  window: GcalWindow = DEFAULT_WINDOW,
 ): Promise<{ events: GcalPullEvent[]; sync_token: string | null; resynced: boolean }> {
   const encoded = encodeURIComponent(calendarId);
 
@@ -382,15 +485,14 @@ export async function pullFoqusCalendar(
   };
 
   const windowParams = () => {
-    const now = Date.now();
-    const params = new URLSearchParams({
+    const { timeMin, timeMax } = windowBounds(window);
+    return new URLSearchParams({
       showDeleted: "true",
       singleEvents: "true",
       maxResults: "250",
-      timeMin: new Date(now - 7 * 86_400_000).toISOString(),
-      timeMax: new Date(now + 30 * 86_400_000).toISOString(),
+      timeMin,
+      timeMax,
     });
-    return params;
   };
 
   if (syncToken) {
@@ -419,28 +521,34 @@ export async function pullFoqusCalendar(
 /* ------------------------------------------------------------------ */
 
 /**
- * Busy intervals from every calendar *except* the FOQUS one — the user's own
- * agendas are already local, and counting them twice would make the scheduler
- * think the day is full.
+ * Busy intervals from the user's *other* calendars — the FOQUS one is excluded
+ * because its agendas are already local, and counting them twice would make the
+ * scheduler think the day is full.
+ *
+ * `selected` narrows that further to the calendars chosen in Pengaturan. Null
+ * means every other calendar, which is §6.3's default; an empty array means the
+ * user deselected them all, and is answered with no busy intervals rather than
+ * with all of them.
  */
 export async function fetchBusy(
   userId: string,
   foqusCalendarId: string | null,
+  selected: string[] | null = null,
+  window: GcalWindow = DEFAULT_WINDOW,
 ): Promise<GcalBusyInterval[]> {
-  const list = await googleJson<{ items?: CalendarListEntry[] }>(
-    userId,
-    "/users/me/calendarList?maxResults=250",
-  );
+  const entries = await calendarList(userId);
 
-  const ids = (list.items ?? [])
+  const allowed = selected === null ? null : new Set(selected);
+  const ids = entries
     .map((c) => c.id)
-    .filter((calendarId) => calendarId !== foqusCalendarId);
+    .filter((calendarId) => calendarId !== foqusCalendarId)
+    .filter((calendarId) => allowed === null || allowed.has(calendarId));
   if (ids.length === 0) return [];
 
-  const now = Date.now();
+  const { timeMin, timeMax } = windowBounds(window);
   const body = {
-    timeMin: new Date(now - 7 * 86_400_000).toISOString(),
-    timeMax: new Date(now + 30 * 86_400_000).toISOString(),
+    timeMin,
+    timeMax,
     items: ids.map((calendarId) => ({ id: calendarId })),
   };
 
@@ -448,9 +556,7 @@ export async function fetchBusy(
     calendars?: Record<string, { busy?: { start: string; end: string }[] }>;
   }>(userId, "/freeBusy", { method: "POST", body: JSON.stringify(body) });
 
-  const summaries = new Map(
-    (list.items ?? []).map((c) => [c.id, c.summary] as const),
-  );
+  const summaries = new Map(entries.map((c) => [c.id, c.summary] as const));
 
   const out: GcalBusyInterval[] = [];
   for (const [calendarId, entry] of Object.entries(result.calendars ?? {})) {

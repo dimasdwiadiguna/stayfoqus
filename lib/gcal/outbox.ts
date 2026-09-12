@@ -3,6 +3,7 @@
 import { getDb } from "@/lib/db/client";
 import { nowIso } from "@/lib/db/mutations";
 import type { OutboxEntry } from "@/lib/db/schema";
+import { readGcalConfig } from "@/lib/gcal/config";
 import type { GcalEventResult, GcalOutboxOp } from "@/lib/gcal/types";
 
 /**
@@ -16,12 +17,26 @@ import type { GcalEventResult, GcalOutboxOp } from "@/lib/gcal/types";
 export async function drainGcalEntry(entry: OutboxEntry): Promise<void> {
   const op = entry.payload as GcalOutboxOp;
   const db = getDb();
+  const config = await readGcalConfig();
+
+  /*
+   * Both switches in Pengaturan drop the operation rather than deferring it.
+   *
+   * Deferring would mean an entry that can never succeed sitting at the head of
+   * a strictly ordered queue, blocking every todo and agenda behind it. Turning
+   * mirroring back on is served by "Sinkronkan sekarang", which re-queues the
+   * agendas that have no Google event yet.
+   */
+  if (!config.enabled || !config.write_enabled) return;
 
   if (op.kind === "delete_event") {
     const res = await fetch("/api/gcal/events", {
       method: "DELETE",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ event_id: op.gcal_event_id }),
+      body: JSON.stringify({
+        event_id: op.gcal_event_id,
+        calendar_id: config.calendar_id,
+      }),
     });
     // 404/410 means the event is already gone — that is the desired end state.
     if (!res.ok && res.status !== 404 && res.status !== 410) {
@@ -53,6 +68,7 @@ export async function drainGcalEntry(entry: OutboxEntry): Promise<void> {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
+      calendar_id: config.calendar_id,
       agenda_id: agenda.id,
       summary,
       description,

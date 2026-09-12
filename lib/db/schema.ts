@@ -333,8 +333,33 @@ export interface Settings extends BaseRow, LocalMeta {
   bell_enabled: boolean;
   bell_volume: number;
   theme: ThemePreference;
+  /*
+   * Google Calendar, configured from Pengaturan rather than from the
+   * environment. The deployment supplies the OAuth client; *which* calendar
+   * FOQUS writes to, whether it writes at all, which other calendars count as
+   * busy and how far the sync window reaches are all the user's to change, and
+   * they travel with the settings row to every device.
+   */
+  /** Master switch. Off means no pull, no push, and no busy cache. */
+  gcal_enabled: boolean;
+  /** The calendar agendas are mirrored to. Null until one is chosen. */
   gcal_calendar_id: string | null;
-  /** Opaque incremental-sync token for the FOQUS calendar (§6.3). */
+  /** Its display name, kept so Pengaturan can name it without a round trip. */
+  gcal_calendar_name: string | null;
+  /** §6.2 — mirror agendas to Google. Off leaves the pull half running. */
+  gcal_write_enabled: boolean;
+  /** §6.3/§4.10 — read busy intervals from the user's other calendars. */
+  gcal_busy_enabled: boolean;
+  /**
+   * Which other calendars count as busy. Null means "every calendar except the
+   * FOQUS one" — the brief's default, and the right answer until the user has
+   * a calendar they want the scheduler to ignore.
+   */
+  gcal_busy_calendar_ids: string[] | null;
+  /** Rolling sync window, in days either side of today (§4.10 defaults 7/30). */
+  gcal_window_past_days: number;
+  gcal_window_future_days: number;
+  /** Opaque incremental-sync token for the chosen calendar (§6.3). */
   gcal_sync_token: string | null;
 }
 

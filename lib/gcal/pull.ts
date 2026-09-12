@@ -2,8 +2,9 @@
 
 import { getDb } from "@/lib/db/client";
 import { getCurrentUserId, newId, nowIso } from "@/lib/db/mutations";
-import { SETTINGS_ROW_ID, type GcalBusy } from "@/lib/db/schema";
+import { type GcalBusy } from "@/lib/db/schema";
 import { updateSettings } from "@/hooks/use-settings";
+import { pullRequestFrom, readGcalConfig } from "@/lib/gcal/config";
 import type { GcalBusyInterval, GcalPullEvent } from "@/lib/gcal/types";
 
 /**
@@ -20,6 +21,7 @@ export interface PullResponse {
   sync_token: string | null;
   resynced: boolean;
   busy: GcalBusyInterval[];
+  busy_enabled: boolean;
 }
 
 export interface PullOutcome {
@@ -36,36 +38,38 @@ const IDLE: PullOutcome = { applied: 0, conflicts: 0, removed: 0 };
  * account is a normal state, not an error.
  */
 export async function pullGoogleCalendar(): Promise<PullOutcome> {
-  const db = getDb();
-  const settings = await db.settings.get(SETTINGS_ROW_ID);
-  if (!settings) return IDLE;
+  const config = await readGcalConfig();
+  // The master switch in Pengaturan. Off is a deliberate state, not an error.
+  if (!config.enabled) return IDLE;
 
   const res = await fetch("/api/gcal/pull", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ sync_token: settings.gcal_sync_token }),
+    body: JSON.stringify(pullRequestFrom(config)),
   });
 
-  // 401 = not signed in, 412 = not connected, 501 = not configured.
+  // 401 = locked or not signed in, 412 = not connected, 501 = not configured.
   if (res.status === 401 || res.status === 412 || res.status === 501) return IDLE;
   if (!res.ok) throw new Error(`GCal pull ${res.status}: ${await res.text()}`);
 
   const data = (await res.json()) as PullResponse;
 
   const outcome = await applyPulledEvents(data.events);
-  await replaceBusyCache(data.busy);
+  // Only when busy intervals were actually asked for: replacing the cache with
+  // an empty list because the user turned the feature off would be right, but
+  // doing it on every pull *after* that would keep clearing a cache nobody is
+  // filling. `clearBusyCache` is the explicit path for turning it off.
+  if (data.busy_enabled) await replaceBusyCache(data.busy);
 
-  // The sync token and calendar id are local bookkeeping; writing them through
-  // `updateSettings` keeps them in the same row the UI reads.
-  if (
-    data.sync_token !== settings.gcal_sync_token ||
-    data.calendar_id !== settings.gcal_calendar_id
-  ) {
-    await updateSettings({
-      gcal_sync_token: data.sync_token,
-      gcal_calendar_id: data.calendar_id,
-    });
+  // The sync token and the resolved calendar are local bookkeeping; writing
+  // them through `updateSettings` keeps them in the row the UI reads.
+  const patch: Parameters<typeof updateSettings>[0] = {};
+  if (data.sync_token !== config.sync_token) patch.gcal_sync_token = data.sync_token;
+  if (data.calendar_id !== config.calendar_id) {
+    // The server fell back — the chosen calendar was deleted or unshared.
+    patch.gcal_calendar_id = data.calendar_id;
   }
+  if (Object.keys(patch).length > 0) await updateSettings(patch);
 
   return outcome;
 }
@@ -151,8 +155,8 @@ export async function applyPulledEvents(
 
 /**
  * §4.10 — `gcal_busy_cache` is a read-only mirror, refreshed wholesale for the
- * rolling −7/+30 day window. Replacing rather than merging is what makes a
- * *deleted* remote event stop blocking the scheduler.
+ * rolling window configured in Pengaturan. Replacing rather than merging is
+ * what makes a *deleted* remote event stop blocking the scheduler.
  */
 export async function replaceBusyCache(
   intervals: readonly GcalBusyInterval[],
@@ -175,4 +179,13 @@ export async function replaceBusyCache(
     await db.gcal_busy_cache.clear();
     if (rows.length) await db.gcal_busy_cache.bulkAdd(rows);
   });
+}
+
+/**
+ * Empties the busy cache. Called when the user turns off "kalender lain sebagai
+ * sibuk", so the allocator stops treating intervals nobody is refreshing as
+ * obstacles.
+ */
+export async function clearBusyCache(): Promise<void> {
+  await getDb().gcal_busy_cache.clear();
 }

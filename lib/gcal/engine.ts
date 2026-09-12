@@ -1,7 +1,9 @@
 "use client";
 
-import { expireConflictBadges } from "@/lib/agendas/repo";
+import { expireConflictBadges, queueMissingGcalEvents } from "@/lib/agendas/repo";
+import { readGcalConfig } from "@/lib/gcal/config";
 import { pullGoogleCalendar } from "@/lib/gcal/pull";
+import { runSync } from "@/lib/sync/engine";
 import { getSupabase } from "@/lib/supabase/client";
 import { isSupabaseConfigured } from "@/lib/supabase/env";
 
@@ -27,6 +29,8 @@ async function canPull(): Promise<boolean> {
   if (!isSupabaseConfigured()) return false;
   const supabase = getSupabase();
   if (!supabase) return false;
+  // The master switch in Pengaturan — off means no timer traffic at all.
+  if (!(await readGcalConfig()).enabled) return false;
   const { data } = await supabase.auth.getSession();
   return Boolean(data.session);
 }
@@ -48,8 +52,17 @@ async function runOnce(): Promise<void> {
   }
 }
 
-/** Manual pull-to-refresh. */
+/**
+ * "Sinkronkan sekarang" — both directions, in the order that makes the result
+ * legible: queue whatever Google is missing, drain the outbox so those writes
+ * actually leave, then read Google back.
+ */
 export async function refreshGoogleCalendar(): Promise<void> {
+  const config = await readGcalConfig();
+  if (config.enabled && config.write_enabled) {
+    const queued = await queueMissingGcalEvents();
+    if (queued > 0) await runSync();
+  }
   await runOnce();
 }
 

@@ -17,6 +17,13 @@ export type GcalOutboxOp =
     };
 
 export interface GcalEventPayload {
+  /**
+   * The calendar the user chose in Pengaturan. Sent on every write rather than
+   * resolved server-side, so there is exactly one place that decides where an
+   * agenda lands. Null falls back to find-or-create "FOQUS" — the path a first
+   * connect takes before a choice exists.
+   */
+  calendar_id: string | null;
   agenda_id: UUID;
   summary: string;
   description: string;
@@ -29,6 +36,29 @@ export interface GcalEventPayload {
 export interface GcalEventResult {
   event_id: string;
   updated: IsoDateTime;
+}
+
+/** The user's calendars, as Pengaturan needs to list them. */
+export interface GcalCalendar {
+  id: string;
+  summary: string;
+  primary: boolean;
+  /** True when FOQUS may create and edit events on it. */
+  writable: boolean;
+}
+
+/**
+ * Everything the pull needs, assembled from the settings row on the client.
+ * The server holds no preferences of its own — it holds the refresh token.
+ */
+export interface GcalPullRequest {
+  calendar_id: string | null;
+  sync_token: string | null;
+  busy_enabled: boolean;
+  /** Null means every calendar except the chosen one. */
+  busy_calendar_ids: string[] | null;
+  window_past_days: number;
+  window_future_days: number;
 }
 
 export interface GcalBusyInterval {

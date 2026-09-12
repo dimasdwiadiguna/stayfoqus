@@ -2473,3 +2473,200 @@ ENERGY 1 / RHYTHM 1 / MOTION 1. The de-facto system it was actually held to —
 D-005's tokens, D-006's font stack, D-098 and D-120 on compaction, D-121 on
 icons — is real, but it is not written as direction and the gate does not get to
 pretend otherwise.
+
+---
+
+## Gerbang akses, dan Google Calendar yang diatur di dalam app
+
+The session that started the real integration work: a Supabase project and a
+Google Cloud client about to be filled in for the first time. Three things were
+asked for — wire up the database, wire up Google Calendar, and *"pastikan
+settingnya bisa dilakukan di appnya (bukan hard code belakang layar)"* — plus a
+password in front of everything so the deployment is not readable by its URL.
+
+Three answers were chosen before any code was written, because each changes the
+shape of the work: the Google **client secret** stays in the environment while
+everything else moves into the app; the gate password is an environment secret
+with a signed cookie; the Supabase URL and anon key stay environment variables.
+
+### D-139 · Credentials in the environment, preferences in the app — **Requested, the dividing line**
+
+"Bukan hard code belakang layar" needed a line drawn, because two things were
+behind the scenes and they are not the same kind of thing.
+
+One is the OAuth client — id, secret, redirect origin. That is a *deployment
+credential*. Moving it into a table the browser can write would mean the app
+handing itself the ability to change which Google project it speaks to, and
+storing a client secret somewhere a compromised session could read it. It stays
+in `.env`.
+
+The other was everything else, and all of it really was hardcoded:
+
+- the target calendar was found or created by the literal string `"FOQUS"`
+- every other calendar counted as busy, unconditionally
+- the sync window was `−7 / +30` days, written twice inside the route handler
+- there was no way to stop writing to Google short of disconnecting the account
+
+Those are preferences. They now live in the settings row — `gcal_enabled`,
+`gcal_calendar_id`, `gcal_calendar_name`, `gcal_write_enabled`,
+`gcal_busy_enabled`, `gcal_busy_calendar_ids`, `gcal_window_past_days`,
+`gcal_window_future_days` (Dexie v5, migration 0005) — which means they sync
+between devices like every other preference rather than being a property of
+whichever machine was deployed.
+
+The rule this leaves, and the one to apply to the next question of the same
+shape: **the environment holds credentials and addresses; the app holds
+preferences.** `lib/gcal/config.ts` is the single place that reads the second
+half, so no call site gets to reinvent a default.
+
+### D-140 · The primary calendar is refused by the server, not just hidden by the picker — **Interpreted**
+
+§6.1 says "never write to the primary calendar". With the calendar hardcoded
+that was a property of the code. With the user choosing, it has to be enforced
+where the write happens.
+
+`resolveCalendar` does three things on every events and pull call: refuses the
+primary outright (400), honours the requested calendar when it is writable, and
+falls back to find-or-create when it is not — deleted, unshared, or downgraded
+to read-only. The picker greys the primary out and says why, but that is
+courtesy; the server is the boundary. A settings row syncs between devices and
+may have been written by a version of the app that did not know the rule.
+
+The fallback is deliberately silent-but-recorded: the pull response echoes the
+calendar it actually used, and the client writes that back into settings, so a
+stale choice repairs itself rather than failing every sync forever.
+
+### D-141 · Changing calendar forgets the event ids and keeps the old events — **Filled a gap**
+
+A Google event id is only meaningful inside the calendar that issued it, and a
+`syncToken` is one calendar's change feed. Switching target therefore clears
+both (`detachGcalEvents`), and the next sync recreates the agendas where they
+now belong.
+
+The events left behind on the old calendar are **not** deleted. Deleting them
+would mean writing to a calendar the user has just told FOQUS to stop using,
+which is precisely the instruction being followed. The toast says so rather than
+leaving it to be discovered.
+
+### D-142 · The two Google switches drop queued writes instead of deferring them — **Filled a gap**
+
+`gcal_enabled` and `gcal_write_enabled` are read by `drainGcalEntry`, and when
+either is off the entry is dropped, not retried later.
+
+Deferring was the first instinct and it is wrong: the outbox drains strictly in
+insertion order (D-012), so an entry that can never succeed would sit at the
+head of the queue and block every todo, agenda and settings write behind it —
+the whole app would stop syncing because Google was switched off.
+
+Dropping needs a way back, so "Sinkronkan sekarang" became two-directional:
+`queueMissingGcalEvents` re-queues every mirrorable agenda Google does not have
+an id for, the outbox drains, and only then does the pull run. That also repairs
+the D-141 case, where every agenda is deliberately missing an id at once.
+
+### D-143 · Signing in hands the sentinel's rows to the account — **Bug, and a file that was cited but never written**
+
+D-009 gave locally created rows a sentinel `user_id` so the app works with no
+account. `lib/db/mutations.ts` documented the other half — *"Supabase Auth
+overwrites this at first sign-in (`lib/sync/adopt.ts`)"* — and that file did not
+exist.
+
+The failure it caused is quiet and total. Every synced table's policy is
+`with check (user_id = (select auth.uid()))`, so an upsert carrying the sentinel
+is rejected by Postgres; the outbox retries it five times, parks it as
+`blocked`, and moves on. A first sign-in would look like it worked and sync
+nothing — and the only place saying otherwise is a count in Settings.
+
+`adoptLocalRows` re-stamps every sentinel row and queues each one. Two details
+are deliberate:
+
+- **`updated_at` is not touched.** It records when the user made the change, and
+  last-write-wins (§3.2) reads it. Bumping it would let a device that has been
+  offline for a week win against an edit made yesterday.
+- **A *different* account adopts nothing.** Sentinel → account is a claim;
+  account → other account would be handing this device's data to someone else.
+  FOQUS is single-user, so the second transition sets the id for future writes
+  and leaves existing rows alone.
+
+Adoption runs before `seedIfNeeded` on boot, and again from an
+`onAuthStateChange` listener — the OAuth round trip returns to a freshly mounted
+app where `getUser()` can still answer null while the browser client finishes
+the code exchange.
+
+### D-144 · The gate is a server boundary, and its key is the password — **Requested**
+
+A screen in front of the app would have been theatre: the data is in IndexedDB
+on the device, but the *deployment* is a public URL, and anyone who has it could
+read every API route.
+
+`middleware.ts` holds the line instead. Locked, a navigation gets a redirect to
+`/gate` and anything under `/api/` gets a 401 — no page is ever rendered with
+the data already in it. The service worker, manifest and icons are excluded so a
+locked deployment can still be installed.
+
+The password lives in `FOQUS_ACCESS_PASSWORD` and there is deliberately no UI to
+change it: it is a secret, and the "bukan hardcode" rule of D-139 is about
+preferences. Empty means the gate is off, which is what keeps `npm run dev`
+frictionless.
+
+The cookie is `"<expiry>.<HMAC-SHA256 over that expiry>"`, and **the signing key
+is the password itself**. That is the whole reason there is no second secret to
+configure, and it buys the behaviour you want from a gate whose purpose is "only
+me": changing the password invalidates every issued cookie at once. Web Crypto
+only, because middleware runs on the edge runtime where Node's `crypto` is not
+available.
+
+Two honest limits, both stated in the README rather than papered over:
+
+- **Throttling is per instance.** Eight wrong guesses per fifteen minutes, in a
+  `Map` that a cold start forgets and a second serverless instance does not
+  share. It turns a script into a nuisance; it does not make a short password
+  safe.
+- **An installed PWA keeps working offline while locked.** The service worker
+  answers from its precache and never reaches the middleware. The gate protects
+  the deployment, not the device — and the device's copy is already the user's
+  own.
+
+`BootGate` moved out of `AppProviders` and into `app/(app)/layout.tsx` for this:
+the gate page renders under the same root provider, and it must not open the
+database or start the sync engine for someone who has not answered yet.
+
+### D-145 · A settings row older than its migration reads as fully enabled — **Interpreted**
+
+`gcalConfigFrom` defaults every new field with `??`, and the Dexie v5 upgrade
+backfills them. Both are needed and they cover different paths: the upgrade
+fixes rows already on this device, the `??` fixes a row *pulled* from a device
+that has not upgraded, which arrives from Postgres with the 0005 columns absent.
+
+The direction of the default is the decision. `undefined` reads as **on**,
+because reading it as off would silently stop the entire integration on a device
+that had it working — and the thing that actually gates every Google call is
+`gcal_calendar_id`, which has no safe default and starts null.
+
+`gcal_busy_calendar_ids` is the one field where null is not "unset" but a value:
+null means *every other calendar*, §6.3's default, and it stays correct when a
+calendar is added in Google next month. An empty array means the opposite — no
+calendar is busy — which is why the picker snaps back to null once every
+candidate is ticked rather than storing the full list.
+
+### Verification
+
+`npm run lint`, `npm run typecheck` and `npm run build` are clean. The Vitest
+suite is green at **355 tests** (347 before, plus 8 new): the gate's token —
+expiry at the exact boundary, a forged expiry, rotation revoking an old session,
+malformed input — adoption against a real Dexie under `fake-indexeddb`, and the
+settings-row defaults above.
+
+The gate was driven against a production build with the password set: a locked
+`/tasks` answers 307 to `/gate?next=%2Ftasks`, a locked `/api/gcal/status`
+answers 401, `/sw.js` and `/manifest.webmanifest` answer 200 while locked, the
+wrong password answers 401 and the ninth attempt 429, the right one sets
+`HttpOnly; Secure; SameSite=lax` and `/tasks` then answers 200, and
+"Kunci sekarang" clears the cookie.
+
+**Not verified against Google.** No Supabase project or OAuth client was
+configured in this environment, so the calendar picker, the busy-calendar
+selection and the window settings are exercised by their types and their pure
+parts only. The first real connect is the test that matters, and
+Pengaturan → Sinkronisasi → "Periksa koneksi database" exists to make its
+failures legible rather than mysterious.
+

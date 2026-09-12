@@ -1,3 +1,4 @@
+import { BootGate } from "@/components/boot-gate";
 import { FocusLayer } from "@/components/focus/focus-layer";
 import { RewardLayer } from "@/components/reward/reward-layer";
 import { NowTicker } from "@/components/shell/now-ticker";
@@ -9,21 +10,29 @@ export default function AppLayout({
   children: React.ReactNode;
 }) {
   return (
-    // The top safe-area inset is applied here rather than on each screen's
-    // header: whatever is first inside the shell — the ticker, or a header when
-    // the ticker has nothing to say — must clear the notch exactly once.
-    // `standalone:h-full` because iOS under-reports `dvh` by the top inset once
-    // the app is installed, leaving the tab bar short of the screen; see the
-    // custom variant in globals.css.
-    <div className="safe-top flex h-dvh standalone:h-full flex-col">
-      {/* Above every screen, so "what now, what next" is never a tab away. */}
-      <NowTicker />
-      {children}
-      {/* §7.4: Fokus is an overlay over every tab, never a tab of its own. */}
-      <FocusLayer />
-      {/* §5.9 coupling prompt and the §9 "Hari Selesai" screen. */}
-      <RewardLayer />
-      <TabBar />
-    </div>
+    /*
+     * The boot sequence is scoped to the app shell rather than the root
+     * provider, so the access gate at /gate never opens IndexedDB or starts
+     * the sync engine for someone who has not answered for themselves yet.
+     *
+     * The top safe-area inset is applied here rather than on each screen's
+     * header: whatever is first inside the shell — the ticker, or a header when
+     * the ticker has nothing to say — must clear the notch exactly once.
+     * `standalone:h-full` because iOS under-reports `dvh` by the top inset once
+     * the app is installed, leaving the tab bar short of the screen; see the
+     * custom variant in globals.css.
+     */
+    <BootGate>
+      <div className="safe-top flex h-dvh standalone:h-full flex-col">
+        {/* Above every screen, so "what now, what next" is never a tab away. */}
+        <NowTicker />
+        {children}
+        {/* §7.4: Fokus is an overlay over every tab, never a tab of its own. */}
+        <FocusLayer />
+        {/* §5.9 coupling prompt and the §9 "Hari Selesai" screen. */}
+        <RewardLayer />
+        <TabBar />
+      </div>
+    </BootGate>
   );
 }
