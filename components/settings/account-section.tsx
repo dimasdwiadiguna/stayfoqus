@@ -9,6 +9,7 @@ import { updateSettings, useSettings } from "@/hooks/use-settings";
 import { id as t } from "@/lib/i18n/id";
 import { getSupabase } from "@/lib/supabase/client";
 import { isSupabaseConfigured } from "@/lib/supabase/env";
+import { probeAuthProviders, type AuthProbe } from "@/lib/supabase/auth-settings";
 
 interface GcalStatus {
   configured: boolean;
@@ -30,6 +31,8 @@ export function AccountSection() {
   const [email, setEmail] = React.useState<string | null>(null);
   const [status, setStatus] = React.useState<GcalStatus | null>(null);
   const [setupError, setSetupError] = React.useState<string | null>(null);
+  const [signInError, setSignInError] = React.useState<string | null>(null);
+  const [providers, setProviders] = React.useState<AuthProbe | null>(null);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -40,6 +43,12 @@ export function AccountSection() {
         const { data } = await supabase.auth.getUser();
         if (!cancelled) setEmail(data.user?.email ?? null);
       }
+      // Whether the project has the Google provider switched on at all. Asked
+      // before the button is offered, because `signInWithOAuth` navigates away
+      // and a disabled provider answers with raw JSON the user cannot act on.
+      const probe = await probeAuthProviders();
+      if (!cancelled) setProviders(probe);
+
       try {
         // `status` answers 200 even when signed out, so this never logs a 401.
         const res = await fetch("/api/gcal/status");
@@ -127,18 +136,41 @@ export function AccountSection() {
         ) : (
           <div className="space-y-2">
             <p className="text-[13px] text-fg-muted">{t.auth.signInBlurb}</p>
+
+            {providers?.status === "ok" && !providers.googleEnabled ? (
+              <p className="rounded-lg border border-warning/40 bg-surface-2 px-3 py-2.5 text-[13px] text-warning">
+                {t.auth.providerDisabled}
+              </p>
+            ) : null}
+
             <Button
               variant="primary"
               block
+              // Offering a button whose only outcome is a page of JSON is worse
+              // than not offering it. An unreachable probe still lets the user
+              // try — being unable to ask is not evidence of a problem.
+              disabled={providers?.status === "ok" && !providers.googleEnabled}
               onClick={() =>
-                void getSupabase()?.auth.signInWithOAuth({
-                  provider: "google",
-                  options: { redirectTo: `${location.origin}/settings` },
-                })
+                void (async () => {
+                  setSignInError(null);
+                  const { error } = (await getSupabase()?.auth.signInWithOAuth({
+                    provider: "google",
+                    options: { redirectTo: `${location.origin}/settings` },
+                  })) ?? { error: null };
+                  // Reached only when supabase-js refuses before redirecting;
+                  // the navigation itself never returns here.
+                  if (error) setSignInError(error.message);
+                })()
               }
             >
               {t.auth.signIn}
             </Button>
+
+            {signInError ? (
+              <p className="rounded-lg border border-danger/40 bg-danger/10 px-3 py-2 font-mono text-[11px] break-words text-danger">
+                {signInError}
+              </p>
+            ) : null}
           </div>
         )}
 

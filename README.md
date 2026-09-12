@@ -129,11 +129,32 @@ park them as `blocked`.
 
 ### 3. Enable Google as an auth provider
 
-**Authentication → Providers → Google.** Supply the OAuth client ID and secret
-from step 4 below, and add Supabase's callback URL to that client's authorized
-redirect URIs — Supabase shows the exact URL on that screen.
+Google is the only provider FOQUS uses (§2), and it is **off by default** in a
+new Supabase project. Three things have to line up:
 
-Google is the only provider FOQUS uses (§2).
+1. **Supabase → Authentication → Sign In / Providers → Google.** Switch it
+   **on** — this is the toggle, separate from filling the fields below it.
+2. Paste the **Client ID** and **Client Secret** of the OAuth client from the
+   Google Cloud section below. The same client serves both sign-in and calendar
+   access.
+3. Copy the **callback URL** Supabase shows on that screen — it looks like
+   `https://<project-ref>.supabase.co/auth/v1/callback` — into that Google
+   client's **Authorized redirect URIs**.
+
+Step 3 is the one most often missed, because FOQUS needs a *second*,
+unrelated redirect URI on the same client: `/api/gcal/callback` on your own
+domain, for the calendar connection. Both must be listed.
+
+Skipping step 1 produces this, in the address bar rather than in the app:
+
+```json
+{"code":400,"error_code":"validation_failed",
+ "msg":"Unsupported provider: provider is not enabled"}
+```
+
+Pengaturan now asks GoTrue's public `/auth/v1/settings` document before it
+offers the button, so a project with the provider still off says so in
+Indonesian instead of navigating you into that JSON.
 
 ---
 
@@ -290,6 +311,7 @@ The suite covers what `BRIEF.md` §13 asks for:
 - the access gate's token: expiry, forgery, and rotation revoking old sessions
 - which URLs may be precached, so a document never shadows the gate again
 - the Google scope set, and reading Google's error envelope
+- reading GoTrue's settings document, so a disabled provider is caught early
 - claiming local rows for the account at first sign-in
 - reading the Google configuration from a settings row older than the migration
   that added it
